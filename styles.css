@@ -1,0 +1,232 @@
+/* =============================================================
+   Canton Development Fund — Money / Transparency page
+   Stylesheet. Visual language shared with the SV Operations
+   calendar: deep purple-on-near-black, Inter, pill controls.
+   ============================================================= */
+
+/* ---- Theme tokens ------------------------------------------ */
+:root {
+  --bg: #03030a;                       /* page base */
+  --panel: #10091f;                    /* panel/card base */
+  --panel2: #0c0a18;                   /* inputs, nested cells */
+  --purple: #7c4dff;                   /* primary accent */
+  --purple-soft: #c99cff;              /* lighter accent (labels/headings) */
+  --green: #43d17a;                    /* disbursed / verified accent */
+  --amber: #e0a94a;                    /* remaining / warning accent */
+  --blue: #5aa9e6;                     /* secondary accent */
+  --slate: #8f86a8;                    /* muted secondary text */
+  --text: #f7f4ff;                     /* main text */
+  --muted: #cdb8ef;                    /* muted purple text */
+  --border: rgba(124, 77, 255, 0.65);  /* strong panel border */
+  --border-soft: rgba(201, 156, 255, 0.28); /* soft border */
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: Inter, Arial, sans-serif;
+  /* Layered gradient: soft purple glow top-left + vertical fade (matches calendar) */
+  background:
+    radial-gradient(circle at top left, rgba(124, 77, 255, 0.22), transparent 35%),
+    linear-gradient(180deg, #03030a 0%, #070711 100%);
+  color: var(--text);
+  padding: 28px 20px;
+  min-height: 100vh;
+}
+
+/* Centered content column */
+.page { max-width: 1500px; margin: 0 auto; }
+
+/* ---- Header ------------------------------------------------ */
+header { margin-bottom: 22px; }
+h1 { margin: 0; font-size: 38px; letter-spacing: -1px; }
+.subtitle { margin-top: 8px; color: var(--muted); max-width: 720px; }
+
+/* Green verified-source pill (mirrors calendar's "Source" pill) */
+.source-pill {
+  display: inline-flex; gap: 8px; align-items: center;
+  border: 1px solid var(--green); color: var(--green);
+  border-radius: 999px; padding: 7px 12px; font-size: 12.5px; margin-top: 12px;
+}
+.source-pill a { color: var(--green); text-decoration: underline; }
+
+/* Section headings inside panels */
+h2 {
+  font-size: 15px; text-transform: uppercase; letter-spacing: .1em;
+  color: var(--purple-soft); margin: 0 0 4px;
+}
+.note { color: var(--slate); font-size: 13px; margin: 0 0 16px; }
+
+/* Generic panel */
+.panel {
+  background: var(--panel); border: 1px solid var(--border-soft);
+  border-radius: 16px; padding: 22px; margin-bottom: 18px;
+}
+
+/* ---- Headline: committed vs disbursed ---------------------- */
+.headline { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; margin-bottom: 18px; }
+.bigbar { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 24px; }
+.bigbar .lab { font-size: 13px; color: var(--muted); margin-bottom: 14px; }
+
+/* The big progress bar */
+.progress {
+  height: 46px; background: var(--panel2); border-radius: 10px;
+  overflow: hidden; position: relative; border: 1px solid var(--border-soft);
+}
+.progress .fill {
+  height: 100%; background: linear-gradient(90deg, var(--green), #2ea866);
+  display: flex; align-items: center; padding-left: 16px;
+  font-weight: 800; font-size: 16px; color: #03110a; min-width: fit-content;
+}
+.progress .pct {
+  position: absolute; right: 16px; top: 0; bottom: 0;
+  display: flex; align-items: center; font-size: 14px; color: var(--muted); font-weight: 700;
+}
+
+/* Two stacked stat boxes beside the big bar */
+.hstat { display: flex; flex-direction: column; gap: 12px; }
+.hstat .box { background: var(--panel); border: 1px solid var(--border-soft); border-radius: 14px; padding: 16px 18px; }
+.hstat .n { font-size: 26px; font-weight: 800; letter-spacing: -.5px; }
+.hstat .n.g { color: var(--green); }
+.hstat .n.a { color: var(--amber); }
+.hstat .l { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+/* ---- Metric row ------------------------------------------- */
+.grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
+.metric { background: var(--panel); border: 1px solid var(--border-soft); border-radius: 14px; padding: 18px; }
+.metric .n { font-size: 30px; font-weight: 800; letter-spacing: -1px; }
+.metric .n.g { color: var(--green); }
+.metric .n.p { color: var(--purple-soft); }
+.metric .l { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+/* ---- Concentration (committed vs disbursed by org) --------- */
+.conc { display: flex; flex-direction: column; gap: 12px; }
+.conc .row { display: grid; grid-template-columns: 150px 1fr 160px; align-items: center; gap: 12px; font-size: 13px; }
+.conc .org { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conc .bars { display: flex; flex-direction: column; gap: 3px; }
+.conc .track { height: 11px; background: var(--panel2); border-radius: 4px; overflow: hidden; }
+.conc .fc { height: 100%; background: linear-gradient(90deg, var(--purple), var(--blue)); }
+.conc .fd { height: 100%; background: linear-gradient(90deg, var(--green), #2ea866); }
+.conc .amt { text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; }
+.conc .amt .c { color: var(--purple-soft); }
+.conc .amt .d { color: var(--green); }
+.dual-key { display: flex; gap: 16px; font-size: 12px; color: var(--slate); margin-bottom: 14px; }
+.dual-key i { width: 20px; height: 8px; border-radius: 3px; display: inline-block; margin-right: 5px; vertical-align: middle; }
+
+/* ---- Monthly disbursement chart --------------------------- */
+.barchart { display: flex; align-items: flex-end; gap: 16px; height: 170px; padding-top: 24px; }
+.barchart .col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+.barchart .bar {
+  width: 100%; max-width: 70px;
+  background: linear-gradient(180deg, var(--green), #2ea866);
+  border-radius: 8px 8px 0 0; position: relative; min-height: 4px;
+}
+.barchart .val { position: absolute; top: -20px; left: 0; right: 0; text-align: center; font-size: 12px; font-weight: 700; color: var(--green); }
+.barchart .lab { font-size: 11px; color: var(--slate); margin-top: 8px; }
+
+/* ---- Ledger controls -------------------------------------- */
+.controls { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+input, select {
+  background: var(--panel2); border: 1px solid var(--border-soft); color: var(--text);
+  border-radius: 12px; padding: 11px 14px; font-size: 14px; font-family: inherit;
+}
+#search { flex: 1 1 240px; }
+input::placeholder { color: #9b8bb7; }
+/* Custom dropdown chevron (same SVG as calendar) */
+select {
+  -webkit-appearance: none; -moz-appearance: none; appearance: none;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%23cdb8ef' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 13px center;
+}
+select::-ms-expand { display: none; }
+
+/* ---- Per-grant ledger table ------------------------------- */
+.ltable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ltable thead th {
+  position: sticky; top: 0; background: var(--panel); text-align: left;
+  font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--slate); font-weight: 700; padding: 11px 12px;
+  border-bottom: 1px solid var(--border); z-index: 1;
+}
+.ltable thead th.r { text-align: right; }
+.ltable tbody td { padding: 12px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
+
+/* Clickable summary row */
+.grow { cursor: pointer; }
+.grow:hover { background: rgba(124, 77, 255, .05); }
+.grow .org { font-weight: 700; }
+.grow .nm { color: var(--slate); font-size: 11.5px; margin-top: 1px; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grow .caret { color: var(--purple-soft); font-size: 11px; margin-right: 6px; display: inline-block; width: 10px; }
+
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.num.c { color: var(--purple-soft); }
+.num.d { color: var(--green); font-weight: 700; }
+.num.r { color: var(--amber); }
+
+.pctcell { white-space: nowrap; min-width: 104px; }
+.pctcell .minibar { height: 6px; background: var(--panel2); border-radius: 3px; overflow: hidden; margin-top: 4px; border: 1px solid var(--border-soft); }
+.pctcell .minibar .f { height: 100%; background: linear-gradient(90deg, var(--green), #2ea866); }
+.pctcell .lbl { font-size: 11.5px; color: var(--muted); }
+
+.pr-link { color: var(--purple-soft); text-decoration: none; font-weight: 600; white-space: nowrap; }
+.pr-link:hover { text-decoration: underline; }
+
+/* Expandable detail row (hidden until its summary row is clicked) */
+.detailrow td { background: var(--panel2); padding: 0; border-bottom: 1px solid var(--border-soft); }
+.detailwrap { display: none; padding: 14px 18px; }
+.detailrow.open .detailwrap { display: block; }
+.detailwrap .dtitle { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--slate); margin-bottom: 10px; }
+.detailwrap .dmeta { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+.detailwrap .dmeta b { color: var(--purple-soft); }
+.detailwrap .links { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+
+.linkbtn {
+  font-size: 12px; padding: 7px 12px; border-radius: 9px;
+  background: var(--panel); border: 1px solid var(--border-soft);
+  color: var(--purple-soft); text-decoration: none; font-weight: 600; white-space: nowrap;
+}
+.linkbtn:hover { border-color: var(--purple); background: rgba(124, 77, 255, .12); }
+.linkbtn.primary { background: var(--purple); border-color: var(--purple); color: #fff; }
+
+/* Payment history rows inside the detail area */
+.txrow {
+  display: grid; grid-template-columns: 130px 1fr auto; gap: 14px;
+  padding: 8px 0; font-size: 12.5px; border-bottom: 1px dashed var(--border-soft); align-items: center;
+}
+.txrow:last-child { border-bottom: none; }
+.txrow .date { color: var(--muted); }
+.txrow .amt { color: var(--green); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* Per-payment source link: Lighthouse (green, verified) vs GitHub PR (neutral) */
+.txsrc { font-size: 11px; text-decoration: none; padding: 3px 9px; border-radius: 6px; white-space: nowrap; font-weight: 600; }
+.txsrc.lh { color: var(--green); border: 1px solid rgba(67, 209, 122, .45); background: rgba(67, 209, 122, .08); }
+.txsrc.lh:hover { background: rgba(67, 209, 122, .18); }
+.txsrc.gh { color: var(--slate); border: 1px solid var(--border-soft); }
+.txsrc.gh:hover { color: var(--purple-soft); border-color: var(--purple); }
+.txsrc.none { color: var(--slate); border: none; }
+.lh-verified { color: var(--green); font-weight: 700; text-transform: none; letter-spacing: 0; }
+.noTx { font-size: 12.5px; color: var(--slate); }
+
+/* ---- Reconciliation note ---------------------------------- */
+.recon {
+  background: linear-gradient(180deg, rgba(90, 169, 230, .10), rgba(90, 169, 230, .03));
+  border: 1px solid rgba(90, 169, 230, .35); border-left: 3px solid var(--blue);
+  border-radius: 0 12px 12px 0; padding: 13px 16px; margin-bottom: 18px;
+  font-size: 13px; color: #d7e8f5;
+}
+.recon b { color: var(--blue); }
+
+/* ---- Loading / error states ------------------------------- */
+.state { padding: 60px 20px; text-align: center; color: var(--muted); }
+.state.err { color: var(--amber); }
+
+footer.pg { color: var(--slate); font-size: 12px; margin-top: 36px; text-align: center; line-height: 1.7; }
+
+/* ---- Responsive ------------------------------------------- */
+@media (max-width: 1000px) {
+  .headline { grid-template-columns: 1fr; }
+  .grid4 { grid-template-columns: 1fr 1fr; }
+  .conc .row { grid-template-columns: 100px 1fr 120px; }
+}

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Canton Development Fund — Financials</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Stylesheet lives in its own file (shared design language with the SV calendar). -->
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+
+<body>
+  <div class="page">
+
+    <header>
+      <h1>Canton Development Fund — Financials</h1>
+      <div class="subtitle">
+        What the committee has committed, and what has actually been paid out on-chain.
+        Disbursements are Lighthouse-verified against Canton MainNet; every payment links back to its source.
+      </div>
+      <div class="source-pill">
+        Verified on-chain ·
+        <a href="https://github.com/canton-foundation/canton-dev-fund" target="_blank" rel="noopener">canton-dev-fund repository</a>
+      </div>
+    </header>
+
+    <!-- Headline: big committed-vs-disbursed bar + two stat boxes -->
+    <div class="headline">
+      <div class="bigbar">
+        <div class="lab">Committed vs. disbursed (all grants)</div>
+        <div class="progress">
+          <div class="fill" id="prog-fill"></div>
+          <div class="pct" id="prog-pct"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:12px;font-size:13px;color:var(--muted)">
+          <span id="disb-lab"></span><span id="comm-lab"></span>
+        </div>
+      </div>
+      <div class="hstat">
+        <div class="box"><div class="n g" id="h-disb"></div><div class="l">CC disbursed to date</div></div>
+        <div class="box"><div class="n a" id="h-rem"></div><div class="l">CC remaining / scheduled</div></div>
+      </div>
+    </div>
+
+    <!-- Four top-line metrics -->
+    <div class="grid4">
+      <div class="metric"><div class="n" id="m-comm"></div><div class="l">CC committed</div></div>
+      <div class="metric"><div class="n g" id="m-pct"></div><div class="l">Overall paid out</div></div>
+      <div class="metric"><div class="n p" id="m-grants"></div><div class="l">Grants tracked</div></div>
+      <div class="metric"><div class="n" id="m-tx"></div><div class="l">On-chain payments</div></div>
+    </div>
+
+    <!-- Reconciliation note (headline total vs sum of per-grant rows) -->
+    <div class="recon" id="recon"></div>
+
+    <!-- Concentration: committed vs disbursed by organization -->
+    <div class="panel">
+      <h2>Where the money actually went</h2>
+      <p class="note">Committed vs. disbursed by organization — the fund's clearest transparency signal.</p>
+      <div class="dual-key">
+        <span><i style="background:linear-gradient(90deg,var(--purple),var(--blue))"></i>Committed</span>
+        <span><i style="background:linear-gradient(90deg,var(--green),#2ea866)"></i>Disbursed on-chain</span>
+      </div>
+      <div class="conc" id="conc"></div>
+    </div>
+
+    <!-- Monthly disbursements -->
+    <div class="panel">
+      <h2>Disbursements by month</h2>
+      <p class="note">Actual on-chain payouts, by month.</p>
+      <div class="barchart" id="months"></div>
+    </div>
+
+    <!-- Per-grant ledger (compact table, click a row to expand) -->
+    <div class="panel">
+      <h2>Per-grant ledger</h2>
+      <p class="note">Every grant with its approved amount, what's been paid, what remains, and the full payment history. Click a row to expand.</p>
+      <div class="controls">
+        <input id="search" placeholder="Search organization or proposal..." />
+        <select id="sort">
+          <option value="committed">Sort: largest committed</option>
+          <option value="disbursed">Sort: most disbursed</option>
+          <option value="pct">Sort: highest % paid</option>
+          <option value="remaining">Sort: most remaining</option>
+          <option value="approved">Sort: most recent approval</option>
+        </select>
+      </div>
+      <!-- app.js injects the table here (and a loading/error state before that). -->
+      <div id="ledger"><div class="state">Loading grant data…</div></div>
+    </div>
+
+    <footer class="pg">
+      Figures from the Canton DevFund Budget-vs-Actuals tracker · disbursements Lighthouse-verified against Canton MainNet.<br />
+      Committed and disbursed totals reconcile to the tracker's own headline. Nothing on this page is estimated.
+    </footer>
+
+  </div>
+
+  <!-- Page logic in its own file; fetches data.json at runtime. -->
+  <script src="./app.js"></script>
+</body>
+</html>
