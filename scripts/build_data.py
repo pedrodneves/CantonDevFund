@@ -408,14 +408,39 @@ def build(limit=None):
                            issue_body, re.I)
             if hm:
                 ms_title = hm.group(1).strip()
+
+        # Recurring/ongoing milestones (e.g. monthly maintenance) end their
+        # title with "- <Month>", which distinguishes otherwise-identical
+        # "Milestone 1" issues. Pull that month out so we can show it, and
+        # strip it from ms_title so it isn't duplicated.
+        month = ""
+        mm = re.search(
+            r"[-–—]\s*(January|February|March|April|May|June|July|August|"
+            r"September|October|November|December)\s*$",
+            ms_title, re.I)
+        if mm:
+            month = mm.group(1).capitalize()
+            ms_title = ms_title[:mm.start()].strip(" -–—")
+
+        # Build the label: "Milestone N: Title (Month)" — with each part shown
+        # only when present.
+        if ms_title and month:
+            label = f"Milestone {ms_num}: {ms_title} ({month})"
+        elif ms_title:
+            label = f"Milestone {ms_num}: {ms_title}"
+        elif month:
+            label = f"Milestone {ms_num} ({month})"
+        else:
+            label = f"Milestone {ms_num}"
+
         rec = {
             "n": ms_num,
             "issue": issue["number"],
             "url": issue.get("html_url"),
             "state": issue.get("state", ""),
             "ms_title": ms_title,
-            "label": (f"Milestone {ms_num}: {ms_title}" if ms_title
-                      else f"Milestone {ms_num}"),
+            "month": month,
+            "label": label,
         }
         ms_by_issue[issue["number"]] = rec
         ms_by_pr[parent_pr].append(rec)
