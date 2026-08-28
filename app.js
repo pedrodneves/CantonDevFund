@@ -180,15 +180,19 @@ function milestoneLinks(g) {
       // A milestone is "paid" if a payout was found; otherwise show its
       // issue state (open/closed) so context is clear either way.
       const tag = m.paid ? "paid" : m.state === "closed" ? "closed" : "open";
+      // Month distinguishes recurring milestones (e.g. monthly maintenance),
+      // shown between the number and the issue: "Milestone 1 · December · #652".
+      const monthPart = m.month ? " · " + m.month : "";
       return (
         '<a class="mslink ' +
         tag +
         '" href="' +
         m.url +
         '" target="_blank" rel="noopener" title="' +
-        (m.title || "").replace(/"/g, "") +
+        (m.label || m.title || "").replace(/"/g, "") +
         '">Milestone ' +
         m.n +
+        monthPart +
         ' · #' +
         m.issue +
         ' <span class="mstag">' +
