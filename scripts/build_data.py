@@ -32,9 +32,11 @@ import re
 import sys
 import json
 import time
+import base64
 import argparse
 import urllib.request
 import urllib.error
+import urllib.parse
 from collections import defaultdict
 
 REPO = "canton-foundation/canton-dev-fund"
@@ -112,6 +114,18 @@ def canon_org(org):
     return ORG_CANON.get(org, org)
 
 
+def _proposal_title(body, filename):
+    """Human-readable proposal title. The filename is the most reliable source
+    (e.g. '2026-06-IEU-Daml Code Assistant.md' -> 'Daml Code Assistant'); we
+    strip the date prefix and any leading org short-code segment."""
+    name = re.sub(r"\.md$", "", filename)
+    name = re.sub(r"^\d{4}-\d{2}-", "", name)          # drop date prefix
+    # Drop a leading "ORG-" segment (e.g. "IEU-", "DA-") if present.
+    name = re.sub(r"^[A-Za-z]{2,12}-", "", name)
+    name = name.replace("-", " ").replace("_", " ").strip()
+    return name[:80] if name else filename
+
+
 def parse_cc(text):
     """Pull a CC amount out of free text, e.g. '1,200,000 CC' -> 1200000.0.
     Returns 0.0 when there's no amount, or when the matched number is empty
@@ -135,7 +149,10 @@ def parse_field(body, name):
     m = re.search(r"\*\*\s*" + name + r"\s*:\s*\*\*\s*(.+?)(?=\*\*[A-Za-z /&]+:\*\*|\n|$)", body)
     if m:
         return m.group(1).strip()
-    m = re.search(r"\|\s*" + name + r"\s*\|\s*(.+?)\s*\|", body, re.I)
+    # Pipe table row: match the field as a whole cell (anchored between pipes)
+    # so "Approved" doesn't match inside another cell's text, and capture only
+    # up to the next pipe.
+    m = re.search(r"(?:^|\n)\|\s*" + name + r"\s*\|\s*([^|\n]+?)\s*\|", body, re.I)
     return m.group(1).strip() if m else ""
 
 
@@ -223,31 +240,62 @@ def extract_payout(body):
 
 
 def build(limit=None):
-    # 1) PROPOSAL PRs -> committed amounts + metadata, keyed by PR number.
-    sys.stderr.write("Fetching proposal PRs...\n")
+    # 1) PROPOSALS come from the /proposals/*.md files — the real source of
+    #    truth. Each file has a metadata table:
+    #        | Org | IntellectEU |
+    #        | Status | Approved |
+    #        | Approved | 2026-06-17 |
+    #        | PR | [#10](...) |
+    #    We key each proposal by its PR number (parsed from the PR row), which
+    #    is how milestone issues link back to it via their "#NN" titles.
+    sys.stderr.write("Fetching proposal files from /proposals ...\n")
     proposals = {}
-    for pr in gh_paged(f"/repos/{REPO}/pulls", {"state": "all"}, cap=limit):
-        num = pr["number"]
-        body = pr.get("body") or ""
-        title = pr.get("title") or ""
-        org = canon_org(clean(parse_field(body, "Org")) or clean(parse_field(body, "Organization"))
+    listing, _ = gh(f"/repos/{REPO}/contents/proposals")
+    md_files = [f for f in listing
+                if f.get("name", "").endswith(".md") and "_template" not in f["name"]]
+    if limit:
+        md_files = md_files[:limit]
+
+    for f in md_files:
+        # Fetch the raw markdown for this proposal.
+        raw, _ = gh(f"/repos/{REPO}/contents/proposals/{urllib.parse.quote(f['name'])}")
+        body = base64.b64decode(raw.get("content", "")).decode("utf-8", "replace")
+
+        # PR number from the "| PR | [#NN](...) |" row.
+        prm = re.search(r"\|\s*PR\s*\|\s*\[?#?(\d+)", body, re.I) or re.search(r"/pull/(\d+)", body)
+        if not prm:
+            continue  # no PR link -> can't tie milestones to it
+        num = int(prm.group(1))
+
+        org = canon_org(clean(parse_field(body, "Org"))
+                        or clean(parse_field(body, "Organization"))
                         or clean(parse_field(body, "Author")))
+        status = clean(parse_field(body, "Status"))
+        # Only APPROVED proposals are funded grants. This is the filter that
+        # keeps drafts/rejected proposals out of the ledger.
+        if "approv" not in status.lower():
+            continue
+
         proposals[num] = {
             "pr": num,
             "org": org or "(unspecified)",
-            "name": title,
-            "approved": (pr.get("merged_at") or "")[:10],
-            "status": "Approved" if pr.get("merged_at") else pr.get("state", ""),
-            "committed": parse_cc(body),
-            "duration": clean(parse_field(body, "Project Duration") or parse_field(body, "Duration")),
-            "url": pr.get("html_url"),
-            # Per-milestone amounts parsed from the PR's milestone schedule, so a
-            # milestone issue that doesn't restate its amount can still be valued.
+            # Human title: the first "# Heading" or the filename, cleaned up.
+            "name": _proposal_title(body, f["name"]),
+            "approved": clean(parse_field(body, "Approved"))[:10],
+            "status": "Approved",
+            "committed": parse_cc(parse_field(body, "Total Funding Request")
+                                  or parse_field(body, "Funding Request")
+                                  or parse_field(body, "Total Request")
+                                  or body),
+            "duration": clean(parse_field(body, "Project Duration")
+                              or parse_field(body, "Duration")),
+            "url": f"https://github.com/{REPO}/pull/{num}",
+            # Per-milestone amounts parsed from the proposal's schedule.
             "ms_amounts": parse_milestone_amounts(body),
             "milestones": [],
             "tx": [],
         }
-    sys.stderr.write(f"  {len(proposals)} PRs\n")
+    sys.stderr.write(f"  {len(proposals)} approved proposals\n")
 
     # 2) MILESTONE ISSUES -> disbursements + votes, linked by title "#NN".
     sys.stderr.write("Fetching milestone issues + timelines...\n")
@@ -266,12 +314,23 @@ def build(limit=None):
         if prop is None:
             continue
 
+        # Many milestone issues have a bare title ("... #130 Milestone 1") with
+        # no descriptive part — the real name lives in the issue BODY as a
+        # heading like "## Milestone 1: Core Analysis Engine". Pull it from
+        # there when the title didn't provide one.
+        issue_body = issue.get("body") or ""
+        if not ms_title:
+            hm = re.search(r"#{1,4}\s*Milestone\s*" + str(ms_num) + r"\s*[:\-–]\s*(.+)",
+                           issue_body, re.I)
+            if hm:
+                ms_title = hm.group(1).strip()
+
         ms = {"n": ms_num, "issue": issue["number"], "title": title,
               "ms_title": ms_title,
               "url": issue.get("html_url"), "state": issue.get("state", ""),
               # Amount from the issue body if present, else from the parent PR's
               # milestone schedule (issues like #208-210 don't restate the figure).
-              "amount": (parse_cc(issue.get("body") or "")
+              "amount": (parse_cc(issue_body)
                          or prop.get("ms_amounts", {}).get(ms_num, 0.0)),
               "vote": None, "paid": False}
 
