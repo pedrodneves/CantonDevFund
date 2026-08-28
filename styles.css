@@ -182,6 +182,24 @@ select::-ms-expand { display: none; }
 .detailwrap .dmeta b { color: var(--purple-soft); }
 .detailwrap .links { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 
+/* Milestone-issue link chips (one per milestone, in the detail dropdown) */
+.mslinks { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.mslink {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 12px; font-weight: 600; text-decoration: none; white-space: nowrap;
+  padding: 6px 11px; border-radius: 9px;
+  background: var(--panel); border: 1px solid var(--border-soft); color: var(--muted);
+}
+.mslink:hover { border-color: var(--purple); background: rgba(124, 77, 255, .12); color: var(--text); }
+.mslink .mstag {
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em; font-weight: 800;
+  padding: 2px 6px; border-radius: 999px;
+}
+/* State colours: paid (green), open (blue), closed (slate) */
+.mslink.paid .mstag { background: rgba(67, 209, 122, .16); color: var(--green); }
+.mslink.open .mstag { background: rgba(90, 169, 230, .16); color: var(--blue); }
+.mslink.closed .mstag { background: rgba(143, 134, 168, .16); color: var(--slate); }
+
 .linkbtn {
   font-size: 12px; padding: 7px 12px; border-radius: 9px;
   background: var(--panel); border: 1px solid var(--border-soft);

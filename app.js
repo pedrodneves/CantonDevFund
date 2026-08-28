@@ -167,6 +167,45 @@ function wireControls() {
 
 // Build the two rows for one grant: a clickable summary row and a
 // hidden detail row holding links + full payment history.
+// Build the "Milestone issues" block for a grant's detail dropdown: one
+// linked chip per milestone issue (open or closed), in milestone order.
+// Each chip shows the milestone number, a paid/open state, and links to the
+// issue thread where the vote and "Paid via" payout live.
+function milestoneLinks(g) {
+  if (!g.milestones || !g.milestones.length) return "";
+  const chips = g.milestones
+    .slice()
+    .sort((a, b) => (a.n || 0) - (b.n || 0))
+    .map((m) => {
+      // A milestone is "paid" if a payout was found; otherwise show its
+      // issue state (open/closed) so context is clear either way.
+      const tag = m.paid ? "paid" : m.state === "closed" ? "closed" : "open";
+      return (
+        '<a class="mslink ' +
+        tag +
+        '" href="' +
+        m.url +
+        '" target="_blank" rel="noopener" title="' +
+        (m.title || "").replace(/"/g, "") +
+        '">Milestone ' +
+        m.n +
+        ' · #' +
+        m.issue +
+        ' <span class="mstag">' +
+        tag +
+        "</span></a>"
+      );
+    })
+    .join("");
+  return (
+    '<div class="dtitle">Milestone issues · ' +
+    g.milestones.length +
+    "</div><div class=\"mslinks\">" +
+    chips +
+    "</div>"
+  );
+}
+
 function rowFor(g, i) {
   const pct = g.committed ? (g.disbursed / g.committed) * 100 : 0;
 
@@ -281,6 +320,7 @@ function rowFor(g, i) {
     g.pr +
     '/files" target="_blank" rel="noopener">Files</a>' +
     "</div>" +
+    milestoneLinks(g) +
     history +
     "</div></td></tr>"
   );
