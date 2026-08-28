@@ -1,12 +1,9 @@
-name: Update Dev Fund data (PAUSED)
+name: Update Dev Fund data
 
-# PAUSED while the generator is being fixed. The hourly schedule is disabled so
-# it cannot overwrite the known-good data.json. Re-enable by uncommenting the
-# schedule block once build_data.py is verified against the live repo.
 on:
   # schedule:
   #   - cron: "0 * * * *"
-  workflow_dispatch: {}   # manual runs only, for testing
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -25,12 +22,25 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
       - name: Rebuild data.json from the dev fund repo
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          rm -f data.new.json          # never reuse a stale temp file
           python3 scripts/build_data.py --out data.new.json
+          echo "--- generated file summary ---"
+          python3 - <<'PY'
+          import json
+          d = json.load(open("data.new.json"))
+          print("generated_at:", d.get("generated_at"))
+          print("disbursement_source:", d.get("disbursement_source"))
+          print("committed:", f"{d.get('headline_committed',0):,.0f}")
+          print("disbursed:", f"{d.get('headline_disbursed',0):,.0f}")
+          print("n_tx:", d.get("n_tx"))
+          PY
+
       - name: Validate generated data
         run: |
           set -euo pipefail
@@ -40,15 +50,24 @@ jobs:
           n = len(d.get("grants", []))
           if n == 0:
               print("::error::generator produced 0 grants"); sys.exit(1)
-          print(f"OK: {n} grants, {d.get('n_tx',0)} payments")
+          if not d.get("disbursement_source"):
+              print("::error::data is not from the Lighthouse generator "
+                    "(no disbursement_source) — refusing to commit"); sys.exit(1)
+          print(f"OK: {n} grants, {d.get('n_tx',0)} payments, "
+                f"disbursed {d.get('headline_disbursed',0):,.0f}")
           PY
+
       - name: Commit if changed
         run: |
           set -euo pipefail
           mv data.new.json data.json
-          if git diff --quiet -- data.json; then echo "No changes."; exit 0; fi
+          if git diff --quiet -- data.json; then
+            echo "::warning::data.json unchanged — nothing committed."
+            exit 0
+          fi
           git config user.name  "devfund-data-bot"
           git config user.email "actions@users.noreply.github.com"
           git add data.json
           git commit -m "chore(data): refresh dev fund data ($(date -u +%Y-%m-%dT%H:%MZ))"
           git push
+          echo "Committed and pushed updated data.json."
