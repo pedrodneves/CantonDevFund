@@ -210,12 +210,17 @@ select::-ms-expand { display: none; }
 
 /* Payment history rows inside the detail area */
 .txrow {
-  display: grid; grid-template-columns: 130px 1fr auto; gap: 14px;
+  display: grid; grid-template-columns: 105px minmax(0, 1fr) auto auto; gap: 14px;
   padding: 8px 0; font-size: 12.5px; border-bottom: 1px dashed var(--border-soft); align-items: center;
 }
 .txrow:last-child { border-bottom: none; }
-.txrow .date { color: var(--muted); }
-.txrow .amt { color: var(--green); font-weight: 700; font-variant-numeric: tabular-nums; }
+.txrow .date { color: var(--muted); white-space: nowrap; }
+/* Milestone title for this payment (what the money was for) */
+.txrow .txlabel {
+  color: var(--purple-soft); font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.txrow .amt { color: var(--green); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* Right-hand link group on each payment row: issue link + source link */
 .txlinks { display: inline-flex; gap: 6px; align-items: center; justify-self: end; }
 

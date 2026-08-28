@@ -242,21 +242,35 @@ function rowFor(g, i) {
         }
         // Link to the milestone issue this payment came from, when known —
         // gives the payment its context (vote thread + "Paid via" comment).
+        // Labelled with the milestone number when we have it.
+        const issueLabel = t.ms ? "M" + t.ms + " · #" + t.issue : "Issue #" + t.issue;
+        const issueTitle = t.label || "Milestone issue #" + t.issue;
         const issueLink = t.issue
           ? '<a class="txsrc issue" href="' +
             (t.issue_url ||
               "https://github.com/canton-foundation/canton-dev-fund/issues/" +
                 t.issue) +
-            '" target="_blank" rel="noopener" title="Milestone issue #' +
-            t.issue +
-            '">Issue #' +
-            t.issue +
+            '" target="_blank" rel="noopener" title="' +
+            issueTitle.replace(/"/g, "") +
+            '">' +
+            issueLabel +
             " ↗</a>"
           : "";
+        // The milestone's descriptive title, shown between date and amount so
+        // each payment reads as "what it was for", not just a number.
+        const msLabel = t.label
+          ? '<span class="txlabel" title="' +
+            t.label.replace(/"/g, "") +
+            '">' +
+            t.label +
+            "</span>"
+          : '<span class="txlabel"></span>';
         return (
           '<div class="txrow"><span class="date">' +
           (t.date || "date pending") +
-          '</span><span class="amt">' +
+          "</span>" +
+          msLabel +
+          '<span class="amt">' +
           fmtc(t.amt) +
           " CC</span>" +
           '<span class="txlinks">' +
