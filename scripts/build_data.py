@@ -247,6 +247,11 @@ def build(limit=None):
                     "date": (c.get("created_at") or "")[:10],
                     "url": url,
                     "src": "lighthouse",
+                    # Milestone issue this payment came from, so the site can
+                    # link each payment to the thread with its vote + payout.
+                    "issue": issue["number"],
+                    "issue_url": issue.get("html_url"),
+                    "ms": ms_num,
                     "note": f"Paid via Lighthouse — milestone {ms_num}, issue #{issue['number']}",
                 }
                 prop["tx"].append(tx)
