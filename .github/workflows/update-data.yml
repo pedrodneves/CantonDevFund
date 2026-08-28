@@ -1,17 +1,15 @@
-name: Update Dev Fund data
+name: Update Dev Fund data (PAUSED)
 
-# Rebuilds data.json straight from the canton-foundation/canton-dev-fund repo
-# (proposals + milestone issues) so the site's financials stay current.
+# PAUSED while the generator is being fixed. The hourly schedule is disabled so
+# it cannot overwrite the known-good data.json. Re-enable by uncommenting the
+# schedule block once build_data.py is verified against the live repo.
 on:
-  schedule:
-    - cron: "0 * * * *"        # top of every hour (UTC)
-  workflow_dispatch: {}         # manual "Run workflow" button in the Actions tab
-  push:
-    paths:
-      - "scripts/build_data.py" # rebuild immediately if the generator changes
+  # schedule:
+  #   - cron: "0 * * * *"
+  workflow_dispatch: {}   # manual runs only, for testing
 
 permissions:
-  contents: write               # needed to commit the refreshed data.json
+  contents: write
 
 concurrency:
   group: update-data
@@ -23,54 +21,32 @@ jobs:
     steps:
       - name: Check out site repo
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      # Build into a temp file first, so a failed/partial run never overwrites
-      # the good data.json that's already committed.
       - name: Rebuild data.json from the dev fund repo
         env:
-          # The built-in GITHUB_TOKEN can read this repo and any PUBLIC repo,
-          # which is enough because canton-dev-fund is public. If it were ever
-          # made private, replace this with a PAT secret (e.g. secrets.DEVFUND_PAT)
-          # that has read access to canton-foundation/canton-dev-fund.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           python3 scripts/build_data.py --out data.new.json
-
-      # Guard: the fresh file must be valid JSON and actually contain grants,
-      # otherwise we keep the existing data.json rather than commit garbage.
       - name: Validate generated data
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json, sys
-          try:
-              d = json.load(open("data.new.json"))
-          except Exception as e:
-              print("::error::data.new.json is not valid JSON:", e)
-              sys.exit(1)
+          d = json.load(open("data.new.json"))
           n = len(d.get("grants", []))
           if n == 0:
-              print("::error::generator produced 0 grants - refusing to commit. "
-                    "Likely an API/auth problem reading canton-dev-fund.")
-              sys.exit(1)
-          print(f"OK: {n} grants, {d.get('n_tx', 0)} payments, "
-                f"{d.get('n_lighthouse', 0)} Lighthouse-verified.")
+              print("::error::generator produced 0 grants"); sys.exit(1)
+          print(f"OK: {n} grants, {d.get('n_tx',0)} payments")
           PY
-
       - name: Commit if changed
         run: |
           set -euo pipefail
           mv data.new.json data.json
-          if git diff --quiet -- data.json; then
-            echo "No changes to data.json."
-            exit 0
-          fi
+          if git diff --quiet -- data.json; then echo "No changes."; exit 0; fi
           git config user.name  "devfund-data-bot"
           git config user.email "actions@users.noreply.github.com"
           git add data.json
