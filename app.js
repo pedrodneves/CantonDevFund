@@ -263,19 +263,12 @@ function rowFor(g, i) {
     '<tr class="detailrow" data-i="' +
     i +
     '"><td colspan="7"><div class="detailwrap">' +
-    '<div class="dmeta">' +
-    (g.approved ? "<span>Approved <b>" + g.approved + "</b></span>" : "") +
-    (g.duration ? "<span>Term <b>" + g.duration + "</b></span>" : "") +
-    "<span>Committed <b>" +
-    fmtc(g.committed) +
-    " CC</b></span>" +
-    "<span>Disbursed <b>" +
-    fmtc(g.disbursed) +
-    " CC</b></span>" +
-    "<span>Remaining <b>" +
-    fmtc(g.remaining) +
-    " CC</b></span>" +
-    "</div>" +
+    (g.approved || g.duration
+      ? '<div class="dmeta">' +
+        (g.approved ? "<span>Approved <b>" + g.approved + "</b></span>" : "") +
+        (g.duration ? "<span>Term <b>" + g.duration + "</b></span>" : "") +
+        "</div>"
+      : "") +
     '<div class="links">' +
     '<a class="linkbtn primary" href="' +
     g.url +
