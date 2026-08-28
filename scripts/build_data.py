@@ -42,6 +42,24 @@ from collections import defaultdict
 REPO = "canton-foundation/canton-dev-fund"
 API = "https://api.github.com"
 
+# Lighthouse is the authoritative, live on-chain disbursement source. Its
+# events feed lists every grant-reward mint, with a `reason` string that ties
+# each payment to a PR and issue in the repo.
+#
+# NOTE: set this to the exact endpoint the dev-fund page fetches. From the
+# browser Network tab it is the "grants" request that returns {"events":[...]}.
+# It is cursor-paginated via pagination.next_cursor_id. If the path is wrong
+# the build fails loudly (0 disbursements) rather than committing bad data.
+LIGHTHOUSE_EVENTS = "https://lighthouse.cantonloop.com/api/dev-fund/grants"
+
+# Parsers for the Lighthouse `reason` string, e.g.
+#   "DA Token Standard V2 PR97 - Milestone 6: ... Issue436 https://.../issues/436"
+# Formats vary ("PR97", "PR 407", "Pr 50"), so the matchers stay tolerant.
+LH_PR_RE = re.compile(r"\bPR\s*#?\s*(\d+)", re.I)
+LH_ISSUE_URL_RE = re.compile(r"/issues/(\d+)")
+LH_ISSUE_RE = re.compile(r"\bIssue\s*#?\s*(\d+)", re.I)
+LH_MS_RE = re.compile(r"Milestone\s*(\d+)", re.I)
+
 # Org short-code -> canonical display name. Extend as new grantees appear.
 ORG_CANON = {
     "DA": "Digital Asset",
@@ -104,6 +122,96 @@ def gh_paged(path, params=None, cap=None):
         if len(data) < params["per_page"]:
             break
         page += 1
+
+
+# ---- Lighthouse (on-chain disbursements) ------------------------------------
+
+
+def fetch_lighthouse_events(limit=None):
+    """Page through the Lighthouse events feed and return the raw event list.
+    The feed is cursor-paginated (pagination.has_next / next_cursor_id)."""
+    events = []
+    cursor = None
+    pages = 0
+    seen_ids = set()
+    while True:
+        url = LIGHTHOUSE_EVENTS + "?limit=100"
+        if cursor:
+            # The cursor query-param name isn't documented; "cursor_id" matches
+            # the response's "next_cursor_id" field. If pagination ever silently
+            # fails, the dedupe below stops us rather than looping forever.
+            url += f"&cursor_id={cursor}"
+        req = urllib.request.Request(url, headers={"User-Agent": "canton-devfund-site"})
+        try:
+            with urllib.request.urlopen(req, timeout=45) as r:
+                data = json.loads(r.read().decode())
+        except Exception as e:
+            sys.stderr.write(f"  Lighthouse fetch failed on page {pages + 1}: {e}\n")
+            break
+        batch = data.get("events", [])
+        # Stop if this page repeats events we've already collected (cursor param
+        # name wrong, or we've wrapped around) — avoids an infinite loop.
+        new = [e for e in batch if e.get("event_id") not in seen_ids]
+        if not new:
+            break
+        for e in new:
+            seen_ids.add(e.get("event_id"))
+        events.extend(new)
+        pages += 1
+        pg = data.get("pagination", {})
+        if not pg.get("has_next"):
+            break
+        cursor = pg.get("next_cursor_id")
+        if not cursor:
+            break
+        if limit and len(events) >= limit:
+            break
+        if pages > 300:  # safety cap
+            break
+    sys.stderr.write(f"  Lighthouse: {len(events)} events over {pages} pages.\n")
+    return events
+
+
+def parse_lighthouse_payment(ev):
+    """Turn one Lighthouse event into a normalized payment, or None if it's a
+    test mint, an expired/non-mint event, or unparseable.
+
+    Returns: {pr, issue, ms, amt, date, url} where amt is the EXACT on-chain
+    amount (we show the real figure, e.g. 1,199,990 — not rounded)."""
+    reason = ev.get("reason", "") or ""
+    status = (ev.get("status") or "").lower()
+
+    # Only real, completed mints — skip test mints, expired, and tiny amounts.
+    if status != "minted":
+        return None
+    if "test for" in reason.lower():
+        return None
+    try:
+        amt = float(ev.get("amount", 0))
+    except (TypeError, ValueError):
+        return None
+    if amt <= 100:  # 10 CC test-mint noise
+        return None
+
+    prm = LH_PR_RE.search(reason)
+    if not prm:
+        return None
+    pr = int(prm.group(1))
+
+    # Prefer the explicit /issues/NN URL; fall back to "Issue NN".
+    im = LH_ISSUE_URL_RE.search(reason) or LH_ISSUE_RE.search(reason)
+    issue = int(im.group(1)) if im else None
+    msm = LH_MS_RE.search(reason)
+    ms = int(msm.group(1)) if msm else None
+
+    return {
+        "pr": pr,
+        "issue": issue,
+        "ms": ms,
+        "amt": amt,                              # exact on-chain amount
+        "date": (ev.get("event_time") or "")[:10],
+        "url": (f"https://github.com/{REPO}/issues/{issue}" if issue else None),
+    }
 
 
 # ---- Parsing helpers ---------------------------------------------------------
@@ -240,207 +348,129 @@ def extract_payout(body):
 
 
 def build(limit=None):
-    # 1) PROPOSALS come from the /proposals/*.md files — the real source of
-    #    truth. Each file has a metadata table:
-    #        | Org | IntellectEU |
-    #        | Status | Approved |
-    #        | Approved | 2026-06-17 |
-    #        | PR | [#10](...) |
-    #    We key each proposal by its PR number (parsed from the PR row), which
-    #    is how milestone issues link back to it via their "#NN" titles.
-    sys.stderr.write("Fetching proposal files from /proposals ...\n")
-    proposals = {}
-    listing, _ = gh(f"/repos/{REPO}/contents/proposals")
-    md_files = [f for f in listing
-                if f.get("name", "").endswith(".md") and "_template" not in f["name"]]
-    if limit:
-        md_files = md_files[:limit]
+    """Build data.json from three sources, each used for what it's authoritative on:
+      - WORKBOOK  -> committed amounts + org + approval dates (the funded totals).
+      - LIGHTHOUSE -> actual on-chain disbursements (the real payments), live.
+      - REPO issues -> milestone names + issue links, to label each payment.
+    Disbursed is computed from Lighthouse, so the paid side is always live and
+    on-chain. Committed stays from the workbook, so it can't mis-parse.
+    """
+    # 1) Committed base + org from the workbook, indexed by PR.
+    wb_path = os.path.join(os.path.dirname(__file__), "..", "workbook.json")
+    with open(wb_path) as f:
+        wb = json.load(f)
+    grants_by_pr = {g["pr"]: g for g in wb["grants"] if g.get("pr")}
+    # Reset each grant's payment list — payments now come from Lighthouse.
+    for g in grants_by_pr.values():
+        g["tx"] = []
+        g["milestones"] = []
+    sys.stderr.write(f"Loaded workbook: {len(grants_by_pr)} grants "
+                     f"({wb['headline_committed']:,.0f} CC committed).\n")
 
-    for f in md_files:
-        # Fetch the raw markdown for this proposal.
-        raw, _ = gh(f"/repos/{REPO}/contents/proposals/{urllib.parse.quote(f['name'])}")
-        body = base64.b64decode(raw.get("content", "")).decode("utf-8", "replace")
-
-        # PR number from the "| PR | [#NN](...) |" row.
-        prm = re.search(r"\|\s*PR\s*\|\s*\[?#?(\d+)", body, re.I) or re.search(r"/pull/(\d+)", body)
-        if not prm:
-            continue  # no PR link -> can't tie milestones to it
-        num = int(prm.group(1))
-
-        org = canon_org(clean(parse_field(body, "Org"))
-                        or clean(parse_field(body, "Organization"))
-                        or clean(parse_field(body, "Author")))
-        status = clean(parse_field(body, "Status"))
-        # Only APPROVED proposals are funded grants. This is the filter that
-        # keeps drafts/rejected proposals out of the ledger.
-        if "approv" not in status.lower():
+    # 2) DISBURSEMENTS from Lighthouse (authoritative, on-chain, live).
+    sys.stderr.write("Fetching disbursements from Lighthouse...\n")
+    lh_events = fetch_lighthouse_events(limit=limit)
+    if not lh_events:
+        # Fail loudly rather than silently zeroing out every disbursement.
+        # The workflow's validation step will catch this and keep the old data.
+        raise RuntimeError(
+            "Lighthouse returned no events — check LIGHTHOUSE_EVENTS URL. "
+            "Refusing to build with zero disbursements.")
+    lh_payments = defaultdict(list)   # pr -> [payment dicts]
+    for ev in lh_events:
+        p = parse_lighthouse_payment(ev)
+        if p is None:
             continue
+        lh_payments[p["pr"]].append(p)
+    n_pay = sum(len(v) for v in lh_payments.values())
+    sys.stderr.write(f"  {n_pay} real disbursements across {len(lh_payments)} grants.\n")
 
-        proposals[num] = {
-            "pr": num,
-            "org": org or "(unspecified)",
-            # Human title: the first "# Heading" or the filename, cleaned up.
-            "name": _proposal_title(body, f["name"]),
-            "approved": clean(parse_field(body, "Approved"))[:10],
-            "status": "Approved",
-            "committed": parse_cc(parse_field(body, "Total Funding Request")
-                                  or parse_field(body, "Funding Request")
-                                  or parse_field(body, "Total Request")
-                                  or body),
-            "duration": clean(parse_field(body, "Project Duration")
-                              or parse_field(body, "Duration")),
-            "url": f"https://github.com/{REPO}/pull/{num}",
-            # Per-milestone amounts parsed from the proposal's schedule.
-            "ms_amounts": parse_milestone_amounts(body),
-            "milestones": [],
-            "tx": [],
-        }
-    sys.stderr.write(f"  {len(proposals)} approved proposals\n")
-
-    # 2) MILESTONE ISSUES -> disbursements + votes, linked by title "#NN".
-    sys.stderr.write("Fetching milestone issues + timelines...\n")
-    n_pay = 0
+    # 3) MILESTONE NAMES + issue links from the repo, keyed by issue number, so
+    #    each Lighthouse payment (which carries its issue number) can be labeled.
+    sys.stderr.write("Fetching milestone names from repo issues...\n")
+    ms_by_issue = {}                  # issue_num -> {label, ms_title, n, url, state}
+    ms_by_pr = defaultdict(list)      # pr -> [milestone dicts] for the chips
     for issue in gh_paged(f"/repos/{REPO}/issues", {"state": "all"}, cap=limit):
-        if "pull_request" in issue:  # issues endpoint also returns PRs; skip them
+        if "pull_request" in issue:
             continue
         title = issue.get("title") or ""
         tm = TITLE_RE.search(title)
         if not tm:
             continue
         parent_pr = int(tm.group(1))
-        ms_num = int(tm.group(2))
-        ms_title = (tm.group(3) or "").strip()  # descriptive part after "Milestone N:"
-        prop = proposals.get(parent_pr)
-        if prop is None:
+        if parent_pr not in grants_by_pr:
             continue
-
-        # Many milestone issues have a bare title ("... #130 Milestone 1") with
-        # no descriptive part — the real name lives in the issue BODY as a
-        # heading like "## Milestone 1: Core Analysis Engine". Pull it from
-        # there when the title didn't provide one.
+        ms_num = int(tm.group(2))
+        ms_title = (tm.group(3) or "").strip()
         issue_body = issue.get("body") or ""
         if not ms_title:
             hm = re.search(r"#{1,4}\s*Milestone\s*" + str(ms_num) + r"\s*[:\-–]\s*(.+)",
                            issue_body, re.I)
             if hm:
                 ms_title = hm.group(1).strip()
+        rec = {
+            "n": ms_num,
+            "issue": issue["number"],
+            "url": issue.get("html_url"),
+            "state": issue.get("state", ""),
+            "ms_title": ms_title,
+            "label": (f"Milestone {ms_num}: {ms_title}" if ms_title
+                      else f"Milestone {ms_num}"),
+        }
+        ms_by_issue[issue["number"]] = rec
+        ms_by_pr[parent_pr].append(rec)
 
-        ms = {"n": ms_num, "issue": issue["number"], "title": title,
-              "ms_title": ms_title,
-              "url": issue.get("html_url"), "state": issue.get("state", ""),
-              # Amount from the issue body if present, else from the parent PR's
-              # milestone schedule (issues like #208-210 don't restate the figure).
-              "amount": (parse_cc(issue_body)
-                         or prop.get("ms_amounts", {}).get(ms_num, 0.0)),
-              "vote": None, "paid": False}
+    # 4) Assemble each grant's payments from Lighthouse, labeled with repo names.
+    for pr, g in grants_by_pr.items():
+        # Milestone chips for the dropdown (from repo).
+        g["milestones"] = sorted(ms_by_pr.get(pr, []), key=lambda m: m["n"])
+        txs = []
+        for p in sorted(lh_payments.get(pr, []), key=lambda x: x["date"]):
+            ms = ms_by_issue.get(p["issue"]) if p["issue"] else None
+            txs.append({
+                "amt": p["amt"],                 # exact on-chain amount
+                "date": p["date"],
+                "url": p["url"],                 # links to the issue
+                "src": "lighthouse",             # all payments are on-chain now
+                "issue": p["issue"],
+                "issue_url": p["url"],
+                "ms": p["ms"] or (ms["n"] if ms else None),
+                "ms_title": ms["ms_title"] if ms else "",
+                "label": (ms["label"] if ms
+                          else (f"Milestone {p['ms']}" if p["ms"] else "On-chain payment")),
+            })
+        g["tx"] = txs
+        g["ntx"] = len(txs)
+        g["disbursed"] = sum(t["amt"] for t in txs)
+        g["remaining"] = max(g.get("committed", 0) - g["disbursed"], 0)
+        g["pct"] = round(g["disbursed"] / g["committed"] * 100, 1) if g.get("committed") else 0
+        g["has_lighthouse"] = bool(txs)
 
-        # Walk the issue's comment timeline for the vote tally and, if present,
-        # a "Paid via" Lighthouse link. The Lighthouse link is an ENHANCEMENT
-        # when available — a milestone can be paid without one (the payout is
-        # recorded elsewhere), so we don't require it to count the payment.
-        lighthouse_url = None
-        payout_date = None
-        for c in gh_paged(f"/repos/{REPO}/issues/{issue['number']}/comments"):
-            body = c.get("body") or ""
-            # GitVote tally
-            vm = VOTE_RE.search(body)
-            if vm:
-                th = THRESH_RE.search(body)
-                ms["vote"] = {
-                    "favor": float(vm.group(1)),
-                    "against": float(vm.group(2)),
-                    "threshold": float(th.group(1)) if th else None,
-                    "passed": (float(vm.group(1)) >= (float(th.group(1)) if th else 51)),
-                }
-            # Optional "Paid via" Lighthouse link
-            u = extract_payout(body)
-            if u:
-                lighthouse_url = u
-                payout_date = (c.get("created_at") or "")[:10]
-
-        # A milestone counts as a completed/paid disbursement when the issue is
-        # closed OR its vote passed OR it has a Lighthouse payout link. That
-        # covers the real cases: some milestones carry a "Paid via" comment,
-        # others are simply closed after a passing completion vote.
-        vote_passed = bool(ms["vote"] and ms["vote"].get("passed"))
-        is_completed = (issue.get("state") == "closed") or vote_passed or bool(lighthouse_url)
-
-        if is_completed:
-            # Prefer the Lighthouse link's date; else the issue's closed date;
-            # else its creation date — so the payment always has a date.
-            date = (payout_date
-                    or (issue.get("closed_at") or "")[:10]
-                    or (issue.get("created_at") or "")[:10])
-            tx = {
-                "amt": ms["amount"],  # milestone amount (from the issue body)
-                "date": date,
-                # Lighthouse link when we have one; otherwise link the issue so
-                # the payment still traces to its source thread.
-                "url": lighthouse_url or issue.get("html_url"),
-                "src": "lighthouse" if lighthouse_url else "issue",
-                "issue": issue["number"],
-                "issue_url": issue.get("html_url"),
-                "ms": ms_num,
-                "ms_title": ms_title,
-                "label": (f"Milestone {ms_num}: {ms_title}" if ms_title
-                          else f"Milestone {ms_num}"),
-                "note": (f"Paid via Lighthouse — milestone {ms_num}, "
-                         f"issue #{issue['number']}") if lighthouse_url
-                        else (f"Milestone {ms_num} completed — issue #{issue['number']}"),
-            }
-            prop["tx"].append(tx)
-            ms["paid"] = True
-            n_pay += 1
-
-        prop["milestones"].append(ms)
-
-    sys.stderr.write(f"  {n_pay} payouts found\n")
-
-    # 3) Roll up per-grant disbursed / remaining / pct, plus has_lighthouse.
-    # A grant counts only if it was actually approved (the PR was merged) or it
-    # has real on-chain disbursements. Unmerged draft applications carry a
-    # funding ask in their body but are NOT funded grants, so they're excluded
-    # — otherwise the ledger fills with every proposal ever opened.
-    grants = []
-    for p in proposals.values():
-        is_approved = p["status"] == "Approved"  # set from merged_at above
-        has_payments = bool(p["tx"])
-        if not (is_approved or has_payments):
-            continue
-        p["tx"].sort(key=lambda t: t["date"] or "")
-        p["disbursed"] = sum(t["amt"] for t in p["tx"])
-        p["remaining"] = max(p["committed"] - p["disbursed"], 0)
-        p["pct"] = round(p["disbursed"] / p["committed"] * 100, 1) if p["committed"] else 0
-        p["ntx"] = len(p["tx"])
-        p["has_lighthouse"] = any(t["src"] == "lighthouse" for t in p["tx"])
-        grants.append(p)
-
-    grants.sort(key=lambda g: -g["committed"])
-
-    # 4) Aggregates for the headline, org chart, monthly chart.
-    total_comm = sum(g["committed"] for g in grants)
-    total_disb = sum(g["disbursed"] for g in grants)
+    # 5) Recompute aggregates from the live disbursement data.
+    grants = sorted(wb["grants"], key=lambda g: -g.get("committed", 0))
+    total_comm = sum(g.get("committed", 0) for g in grants)
+    total_disb = sum(g.get("disbursed", 0) for g in grants)
     org_c, org_d = defaultdict(float), defaultdict(float)
     by_month = defaultdict(float)
     for g in grants:
-        org_c[g["org"]] += g["committed"]
-        org_d[g["org"]] += g["disbursed"]
-        for t in g["tx"]:
+        org_c[g["org"]] += g.get("committed", 0)
+        org_d[g["org"]] += g.get("disbursed", 0)
+        for t in g.get("tx", []):
             if t["date"]:
                 by_month[t["date"][:7]] += t["amt"]
 
     payload = {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "source": f"https://github.com/{REPO}",
-        # Repo-derived totals are authoritative here (no external workbook).
-        "headline_committed": total_comm,
-        "headline_disbursed": total_disb,
+        "disbursement_source": "https://lighthouse.cantonloop.com/dev-fund",
+        "headline_committed": total_comm,          # from workbook
+        "headline_disbursed": total_disb,          # from Lighthouse (live)
         "headline_remaining": total_comm - total_disb,
         "total_disbursed_matched": total_disb,
-        "unassigned": 0,  # everything traces to a milestone issue now
+        "unassigned": 0,
         "n_grants": len(grants),
-        "n_tx": sum(g["ntx"] for g in grants),
-        "n_lighthouse": sum(1 for g in grants for t in g["tx"] if t["src"] == "lighthouse"),
+        "n_tx": sum(len(g.get("tx", [])) for g in grants),
+        "n_lighthouse": sum(len(g.get("tx", [])) for g in grants),  # all on-chain
         "by_month": dict(sorted(by_month.items())),
         "org": sorted(
             [{"org": o, "committed": org_c[o], "disbursed": org_d[o]} for o in org_c],
