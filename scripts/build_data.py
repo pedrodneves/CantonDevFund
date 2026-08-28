@@ -221,7 +221,8 @@ def build(limit=None):
             continue
 
         ms = {"n": ms_num, "issue": issue["number"], "title": title,
-              "url": issue.get("html_url"), "amount": parse_cc(issue.get("body") or ""),
+              "url": issue.get("html_url"), "state": issue.get("state", ""),
+              "amount": parse_cc(issue.get("body") or ""),
               "vote": None, "paid": False}
 
         # Walk the issue's comment timeline for votes + payouts.
