@@ -113,13 +113,22 @@ def canon_org(org):
 
 
 def parse_cc(text):
-    """Pull a CC amount out of free text, e.g. '1,200,000 CC' -> 1200000.0."""
+    """Pull a CC amount out of free text, e.g. '1,200,000 CC' -> 1200000.0.
+    Returns 0.0 when there's no amount, or when the matched number is empty
+    or malformed (e.g. a stray 'CC' with no digits in front of it)."""
     if not text:
         return 0.0
-    m = re.search(r"([\d,]+(?:\.\d+)?)\s*(?:CC|Canton\s*Coin)", text, re.I)
+    # Require at least one digit so we never capture an empty/comma-only string.
+    m = re.search(r"(\d[\d,]*(?:\.\d+)?)\s*(?:CC|Canton\s*Coin)", text, re.I)
     if not m:
         return 0.0
-    return float(m.group(1).replace(",", ""))
+    num = m.group(1).replace(",", "").strip()
+    try:
+        return float(num)
+    except ValueError:
+        # Malformed amount (e.g. "1,,000" or trailing junk) — treat as unknown
+        # rather than crashing the whole build.
+        return 0.0
 
 
 def parse_field(body, name):
