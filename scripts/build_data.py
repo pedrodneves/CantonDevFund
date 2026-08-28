@@ -176,6 +176,34 @@ VOTE_RE = re.compile(
 THRESH_RE = re.compile(r"passing threshold:?\s*`?([\d.]+)%", re.I)
 
 
+# Milestone amount line in a PR body, e.g.:
+#   "Milestone 1 ... 1,500,000 CC"
+#   "| Milestone 1 | Core Primitives | 1,500,000 CC |"  (across table cells)
+# Maps milestone number -> amount, used when the milestone issue itself
+# doesn't restate the figure. Allows table pipes between the label and amount.
+MS_AMOUNT_RE = re.compile(
+    r"(?:Milestone|M)\s*(\d+)\b[^\n]*?(\d[\d,]{3,}(?:\.\d+)?)\s*(?:CC|Canton\s*Coin)",
+    re.I,
+)
+
+
+def parse_milestone_amounts(body):
+    """Return {milestone_number: amount} parsed from a PR body's schedule."""
+    out = {}
+    if not body:
+        return out
+    for m in MS_AMOUNT_RE.finditer(body):
+        n = int(m.group(1))
+        try:
+            amt = float(m.group(2).replace(",", ""))
+        except ValueError:
+            continue
+        # Keep the first (or largest) amount seen for a milestone number.
+        if n not in out or amt > out[n]:
+            out[n] = amt
+    return out
+
+
 def extract_payout(body):
     """Return a Lighthouse URL if this comment records a payout, else None."""
     if not body:
@@ -213,6 +241,9 @@ def build(limit=None):
             "committed": parse_cc(body),
             "duration": clean(parse_field(body, "Project Duration") or parse_field(body, "Duration")),
             "url": pr.get("html_url"),
+            # Per-milestone amounts parsed from the PR's milestone schedule, so a
+            # milestone issue that doesn't restate its amount can still be valued.
+            "ms_amounts": parse_milestone_amounts(body),
             "milestones": [],
             "tx": [],
         }
@@ -238,10 +269,18 @@ def build(limit=None):
         ms = {"n": ms_num, "issue": issue["number"], "title": title,
               "ms_title": ms_title,
               "url": issue.get("html_url"), "state": issue.get("state", ""),
-              "amount": parse_cc(issue.get("body") or ""),
+              # Amount from the issue body if present, else from the parent PR's
+              # milestone schedule (issues like #208-210 don't restate the figure).
+              "amount": (parse_cc(issue.get("body") or "")
+                         or prop.get("ms_amounts", {}).get(ms_num, 0.0)),
               "vote": None, "paid": False}
 
-        # Walk the issue's comment timeline for votes + payouts.
+        # Walk the issue's comment timeline for the vote tally and, if present,
+        # a "Paid via" Lighthouse link. The Lighthouse link is an ENHANCEMENT
+        # when available — a milestone can be paid without one (the payout is
+        # recorded elsewhere), so we don't require it to count the payment.
+        lighthouse_url = None
+        payout_date = None
         for c in gh_paged(f"/repos/{REPO}/issues/{issue['number']}/comments"):
             body = c.get("body") or ""
             # GitVote tally
@@ -254,29 +293,45 @@ def build(limit=None):
                     "threshold": float(th.group(1)) if th else None,
                     "passed": (float(vm.group(1)) >= (float(th.group(1)) if th else 51)),
                 }
-            # Payout
-            url = extract_payout(body)
-            if url:
-                amt = ms["amount"] or parse_cc(body)
-                tx = {
-                    "amt": amt,
-                    "date": (c.get("created_at") or "")[:10],
-                    "url": url,
-                    "src": "lighthouse",
-                    # Milestone issue this payment came from, so the site can
-                    # link each payment to the thread with its vote + payout,
-                    # and show the milestone's real title next to the amount.
-                    "issue": issue["number"],
-                    "issue_url": issue.get("html_url"),
-                    "ms": ms_num,
-                    "ms_title": ms_title,
-                    "label": (f"Milestone {ms_num}: {ms_title}" if ms_title
-                              else f"Milestone {ms_num}"),
-                    "note": f"Paid via Lighthouse — milestone {ms_num}, issue #{issue['number']}",
-                }
-                prop["tx"].append(tx)
-                ms["paid"] = True
-                n_pay += 1
+            # Optional "Paid via" Lighthouse link
+            u = extract_payout(body)
+            if u:
+                lighthouse_url = u
+                payout_date = (c.get("created_at") or "")[:10]
+
+        # A milestone counts as a completed/paid disbursement when the issue is
+        # closed OR its vote passed OR it has a Lighthouse payout link. That
+        # covers the real cases: some milestones carry a "Paid via" comment,
+        # others are simply closed after a passing completion vote.
+        vote_passed = bool(ms["vote"] and ms["vote"].get("passed"))
+        is_completed = (issue.get("state") == "closed") or vote_passed or bool(lighthouse_url)
+
+        if is_completed:
+            # Prefer the Lighthouse link's date; else the issue's closed date;
+            # else its creation date — so the payment always has a date.
+            date = (payout_date
+                    or (issue.get("closed_at") or "")[:10]
+                    or (issue.get("created_at") or "")[:10])
+            tx = {
+                "amt": ms["amount"],  # milestone amount (from the issue body)
+                "date": date,
+                # Lighthouse link when we have one; otherwise link the issue so
+                # the payment still traces to its source thread.
+                "url": lighthouse_url or issue.get("html_url"),
+                "src": "lighthouse" if lighthouse_url else "issue",
+                "issue": issue["number"],
+                "issue_url": issue.get("html_url"),
+                "ms": ms_num,
+                "ms_title": ms_title,
+                "label": (f"Milestone {ms_num}: {ms_title}" if ms_title
+                          else f"Milestone {ms_num}"),
+                "note": (f"Paid via Lighthouse — milestone {ms_num}, "
+                         f"issue #{issue['number']}") if lighthouse_url
+                        else (f"Milestone {ms_num} completed — issue #{issue['number']}"),
+            }
+            prop["tx"].append(tx)
+            ms["paid"] = True
+            n_pay += 1
 
         prop["milestones"].append(ms)
 
