@@ -240,13 +240,29 @@ function rowFor(g, i) {
         } else {
           link = '<span class="txsrc none">—</span>';
         }
+        // Link to the milestone issue this payment came from, when known —
+        // gives the payment its context (vote thread + "Paid via" comment).
+        const issueLink = t.issue
+          ? '<a class="txsrc issue" href="' +
+            (t.issue_url ||
+              "https://github.com/canton-foundation/canton-dev-fund/issues/" +
+                t.issue) +
+            '" target="_blank" rel="noopener" title="Milestone issue #' +
+            t.issue +
+            '">Issue #' +
+            t.issue +
+            " ↗</a>"
+          : "";
         return (
           '<div class="txrow"><span class="date">' +
           (t.date || "date pending") +
           '</span><span class="amt">' +
           fmtc(t.amt) +
           " CC</span>" +
+          '<span class="txlinks">' +
+          issueLink +
           link +
+          "</span>" +
           "</div>"
         );
       })
