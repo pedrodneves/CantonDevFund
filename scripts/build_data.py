@@ -126,8 +126,6 @@ def parse_cc(text):
     try:
         return float(num)
     except ValueError:
-        # Malformed amount (e.g. "1,,000" or trailing junk) — treat as unknown
-        # rather than crashing the whole build.
         return 0.0
 
 
@@ -158,8 +156,15 @@ PAID_RE = re.compile(
 LH_RE = re.compile(r"https://lighthouse\.cantonloop\.com/\S+", re.I)
 PAY_WORDS = re.compile(r"\b(paid|payment|sent|disburse)", re.I)
 
-# Milestone-issue title: "... #97 - Milestone 4: ..."  -> parent PR 97, milestone 4
-TITLE_RE = re.compile(r"#(\d+)\s*[-–]\s*Milestone\s*(\d+)", re.I)
+# Milestone-issue title. Real examples:
+#   "ISS-Based BFT #53 Milestone 1: Core Primitives – Mempool..."
+#   "Token Standard V2 #97 - Milestone 4: Performance-Optimized Core"
+# The parent PR number comes just before "Milestone" (dash optional), the
+# milestone number after it, and an optional ": descriptive title" follows.
+TITLE_RE = re.compile(
+    r"#(\d+)\s*[-–—]?\s*Milestone\s*(\d+)\s*[:\-–]?\s*(.*)?",
+    re.I,
+)
 
 # GitVote tally line, e.g.:
 #   "So far `60.00%` of the users with binding vote are in favor and `0.00%` are against"
@@ -225,11 +230,13 @@ def build(limit=None):
             continue
         parent_pr = int(tm.group(1))
         ms_num = int(tm.group(2))
+        ms_title = (tm.group(3) or "").strip()  # descriptive part after "Milestone N:"
         prop = proposals.get(parent_pr)
         if prop is None:
             continue
 
         ms = {"n": ms_num, "issue": issue["number"], "title": title,
+              "ms_title": ms_title,
               "url": issue.get("html_url"), "state": issue.get("state", ""),
               "amount": parse_cc(issue.get("body") or ""),
               "vote": None, "paid": False}
@@ -257,10 +264,14 @@ def build(limit=None):
                     "url": url,
                     "src": "lighthouse",
                     # Milestone issue this payment came from, so the site can
-                    # link each payment to the thread with its vote + payout.
+                    # link each payment to the thread with its vote + payout,
+                    # and show the milestone's real title next to the amount.
                     "issue": issue["number"],
                     "issue_url": issue.get("html_url"),
                     "ms": ms_num,
+                    "ms_title": ms_title,
+                    "label": (f"Milestone {ms_num}: {ms_title}" if ms_title
+                              else f"Milestone {ms_num}"),
                     "note": f"Paid via Lighthouse — milestone {ms_num}, issue #{issue['number']}",
                 }
                 prop["tx"].append(tx)
@@ -272,10 +283,16 @@ def build(limit=None):
     sys.stderr.write(f"  {n_pay} payouts found\n")
 
     # 3) Roll up per-grant disbursed / remaining / pct, plus has_lighthouse.
+    # A grant counts only if it was actually approved (the PR was merged) or it
+    # has real on-chain disbursements. Unmerged draft applications carry a
+    # funding ask in their body but are NOT funded grants, so they're excluded
+    # — otherwise the ledger fills with every proposal ever opened.
     grants = []
     for p in proposals.values():
-        if not p["committed"] and not p["tx"]:
-            continue  # skip non-grant PRs with nothing to show
+        is_approved = p["status"] == "Approved"  # set from merged_at above
+        has_payments = bool(p["tx"])
+        if not (is_approved or has_payments):
+            continue
         p["tx"].sort(key=lambda t: t["date"] or "")
         p["disbursed"] = sum(t["amt"] for t in p["tx"])
         p["remaining"] = max(p["committed"] - p["disbursed"], 0)
