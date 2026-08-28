@@ -232,6 +232,11 @@ function rowFor(g, i) {
             '" target="_blank" rel="noopener" title="' +
             note +
             '">Lighthouse ↗</a>';
+        } else if (t.src === "issue") {
+          // Payment recorded via the milestone issue (no separate Lighthouse
+          // link). The issue link on the right already covers the source, so
+          // we don't add a redundant second link here.
+          link = "";
         } else if (t.url) {
           link =
             '<a class="txsrc gh" href="' +
