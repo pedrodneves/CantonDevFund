@@ -368,10 +368,12 @@ function renderLedger() {
     (g) => !q || (g.org + " " + g.name).toLowerCase().includes(q)
   );
 
-  // Sort by the selected key (approval sorts by date string; the rest numeric).
+  // Sort by the selected key (approval by date, org alphabetically, rest numeric).
   rows.sort((a, b) => {
     if (sortBy === "approved")
       return (b.approved || "").localeCompare(a.approved || "");
+    if (sortBy === "org")
+      return (a.org || "").localeCompare(b.org || "");
     return (b[sortBy] || 0) - (a[sortBy] || 0);
   });
 
