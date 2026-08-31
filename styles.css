@@ -157,7 +157,7 @@ select::-ms-expand { display: none; }
 .grow { cursor: pointer; }
 .grow:hover { background: rgba(124, 77, 255, .05); }
 .grow .org { font-weight: 700; }
-.grow .nm { color: var(--slate); font-size: 11.5px; margin-top: 1px; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grow .nm { color: var(--slate); font-size: 11.5px; margin-top: 1px; line-height: 1.35; }
 .grow .caret { color: var(--purple-soft); font-size: 11px; margin-right: 6px; display: inline-block; width: 10px; }
 
 .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
