@@ -353,11 +353,6 @@ function rowFor(g, i) {
     '" target="_blank" rel="noopener">Proposal PR #' +
     g.pr +
     " ↗</a>" +
-    '<a class="linkbtn" href="' +
-    REPO +
-    "/pull/" +
-    g.pr +
-    '/files" target="_blank" rel="noopener">Files</a>' +
     "</div>" +
     milestoneLinks(g) +
     history +
