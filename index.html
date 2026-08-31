@@ -17,18 +17,26 @@
         <img class="logo" src="./Canton-Foundation-Logo-Light.svg" alt="Canton Foundation" />
         <div class="brand-divider"></div>
         <div>
-          <h1>Development Fund — Financials</h1>
+          <h1>Development Fund</h1>
           <div class="subtitle">
-            What the committee has committed, and what has actually been paid out on-chain.
-            Disbursements are Lighthouse-verified against Canton MainNet; every payment links back to its source.
+            A public account of the fund — what's committed, what's been paid out on-chain, and every vote behind those decisions.
           </div>
           <div class="source-pill">
-            Verified on-chain ·
+            Live from GitHub &amp; on-chain ·
             <a href="https://github.com/canton-foundation/canton-dev-fund" target="_blank" rel="noopener">canton-dev-fund repository</a>
           </div>
         </div>
       </div>
     </header>
+
+    <!-- Tab bar: Financials / Votes -->
+    <div class="tabs" id="tabs">
+      <button class="tab on" data-tab="financials">Financials</button>
+      <button class="tab" data-tab="votes">Votes</button>
+    </div>
+
+    <!-- ============ FINANCIALS TAB ============ -->
+    <section class="tabpanel on" id="tab-financials">
 
     <!-- Headline: big committed-vs-disbursed bar + two stat boxes -->
     <div class="headline">
@@ -92,14 +100,71 @@
       <div id="ledger"><div class="state">Loading grant data…</div></div>
     </div>
 
+    </section>
+    <!-- ============ END FINANCIALS TAB ============ -->
+
+    <!-- ============ VOTES TAB ============ -->
+    <section class="tabpanel" id="tab-votes">
+
+      <!-- Four vote metrics -->
+      <div class="grid4">
+        <div class="metric"><div class="n" id="v-total"></div><div class="l">Total votes</div></div>
+        <div class="metric"><div class="n a" id="v-progress"></div><div class="l">In progress</div></div>
+        <div class="metric"><div class="n g" id="v-passed"></div><div class="l">Passed</div></div>
+        <div class="metric"><div class="n r" id="v-failed"></div><div class="l">Did not pass</div></div>
+      </div>
+
+      <div class="panel">
+        <h2>All votes</h2>
+        <p class="note">Every GitVote decision — proposal approvals and milestone completions. Filter by status or type; in-progress votes show first.</p>
+        <div class="controls">
+          <input id="v-search" placeholder="Search proposal or milestone..." />
+          <span class="chip on" data-vf="all">All</span>
+          <span class="chip" data-vf="in_progress">In progress</span>
+          <span class="chip" data-vf="passed">Passed</span>
+          <span class="chip" data-vf="failed">Did not pass</span>
+          <select id="v-kind">
+            <option value="all">All types</option>
+            <option value="proposal">Proposal votes</option>
+            <option value="milestone">Milestone votes</option>
+          </select>
+          <span class="spacer"></span>
+          <span id="v-count" class="note" style="margin:0"></span>
+        </div>
+        <div class="votelist" id="votes"><div class="state">Loading votes…</div></div>
+      </div>
+
+    </section>
+    <!-- ============ END VOTES TAB ============ -->
+
     <footer class="pg">
-      Figures from the Canton DevFund Budget-vs-Actuals tracker · disbursements Lighthouse-verified against Canton MainNet.<br />
-      Committed and disbursed totals reconcile to the tracker's own headline. Nothing on this page is estimated.
+      Figures read live from the canton-dev-fund repository and Lighthouse on-chain data.<br />
+      Votes reflect GitVote tallies; a vote passes when the in-favour share meets its threshold before the window closes.
     </footer>
 
   </div>
 
-  <!-- Page logic in its own file; fetches data.json at runtime. -->
+  <!-- Page logic. app.js renders financials; votes.js renders the votes tab. -->
   <script src="./app.js"></script>
+  <script src="./votes.js"></script>
+  <script>
+    // Tab switching. Votes data is loaded lazily the first time its tab opens.
+    (function () {
+      let votesLoaded = false;
+      document.querySelectorAll("#tabs .tab").forEach(function (t) {
+        t.onclick = function () {
+          document.querySelectorAll("#tabs .tab").forEach(function (x) { x.classList.remove("on"); });
+          document.querySelectorAll(".tabpanel").forEach(function (p) { p.classList.remove("on"); });
+          t.classList.add("on");
+          var panel = document.getElementById("tab-" + t.dataset.tab);
+          if (panel) panel.classList.add("on");
+          if (t.dataset.tab === "votes" && !votesLoaded) {
+            votesLoaded = true;
+            if (window.loadVotes) window.loadVotes();
+          }
+        };
+      });
+    })();
+  </script>
 </body>
 </html>
