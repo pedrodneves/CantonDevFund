@@ -126,17 +126,28 @@ def parse_vote(body):
 
 
 def latest_vote_in_timeline(issue_number):
-    """Scan an issue/PR's comments; return the most recent GitVote record."""
-    latest = None
-    latest_date = ""
+    """Scan an issue/PR's comments and return the governing GitVote record.
+
+    GitVote edits ONE comment in place as a vote runs (status updates), then
+    that same comment becomes "Vote closed". So we pick by the comment's
+    updated_at (not created_at), and an in-progress "Vote status" comment always
+    wins over any older vote comment on the same thread.
+    """
+    best = None
+    best_key = ("", "")  # (in_progress_flag, date) — in-progress sorts highest
     for c in gh_paged(f"/repos/{REPO}/issues/{issue_number}/comments"):
-        v = parse_vote(c.get("body") or "")
-        if v:
-            d = c.get("created_at") or ""
-            if d >= latest_date:  # keep the newest vote comment
-                latest, latest_date = v, d
-                latest["comment_date"] = d[:10]
-    return latest
+        body = c.get("body") or ""
+        v = parse_vote(body)
+        if not v:
+            continue
+        # updated_at reflects the latest tally edit; fall back to created_at.
+        d = (c.get("updated_at") or c.get("created_at") or "")[:10]
+        # Rank: an in-progress vote beats a closed one; then by most recent date.
+        key = ("1" if v["status"] == "in_progress" else "0", d)
+        if key >= best_key:
+            best, best_key = v, key
+            best["comment_date"] = d
+    return best
 
 
 # ---- Build ------------------------------------------------------------------
