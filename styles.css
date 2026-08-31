@@ -100,19 +100,27 @@ h2 {
 .metric .n.p { color: var(--purple-soft); }
 .metric .l { font-size: 12px; color: var(--muted); margin-top: 3px; }
 
-/* ---- Concentration (committed vs disbursed by org) --------- */
-.conc { display: flex; flex-direction: column; gap: 12px; }
-.conc .row { display: grid; grid-template-columns: 150px 1fr 160px; align-items: center; gap: 12px; font-size: 13px; }
-.conc .org { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.conc .bars { display: flex; flex-direction: column; gap: 3px; }
-.conc .track { height: 11px; background: var(--panel2); border-radius: 4px; overflow: hidden; }
-.conc .fc { height: 100%; background: linear-gradient(90deg, var(--purple), var(--blue)); }
-.conc .fd { height: 100%; background: linear-gradient(90deg, var(--green), #2ea866); }
-.conc .amt { text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; }
-.conc .amt .c { color: var(--purple-soft); }
-.conc .amt .d { color: var(--green); }
-.dual-key { display: flex; gap: 16px; font-size: 12px; color: var(--slate); margin-bottom: 14px; }
-.dual-key i { width: 20px; height: 8px; border-radius: 3px; display: inline-block; margin-right: 5px; vertical-align: middle; }
+/* ---- Concentration: committed-funding share bar ----------- */
+.conc { display: flex; flex-direction: column; gap: 16px; }
+
+/* The single stacked bar: each segment's flex is its committed amount. */
+.sharebar {
+  display: flex; height: 46px; border-radius: 10px; overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+.sharebar span {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11.5px; font-weight: 700; color: #05010f;
+  overflow: hidden; white-space: nowrap; min-width: 0;
+  transition: filter .12s;
+}
+.sharebar span:hover { filter: brightness(1.12); }
+
+/* Legend: one entry per segment, wrapping. */
+.sharelegend { display: flex; flex-wrap: wrap; gap: 10px 18px; font-size: 12.5px; color: var(--muted); }
+.sharelegend span { display: inline-flex; align-items: center; white-space: nowrap; }
+.sharelegend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; margin-right: 6px; }
+.sharelegend b { color: var(--text); font-weight: 700; margin: 0 4px; }
 
 /* ---- Monthly disbursement chart --------------------------- */
 .barchart { display: flex; align-items: flex-end; gap: 16px; height: 170px; padding-top: 24px; }
@@ -256,5 +264,4 @@ footer.pg { color: var(--slate); font-size: 12px; margin-top: 36px; text-align: 
 @media (max-width: 1000px) {
   .headline { grid-template-columns: 1fr; }
   .grid4 { grid-template-columns: 1fr 1fr; }
-  .conc .row { grid-template-columns: 100px 1fr 120px; }
 }

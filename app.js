@@ -104,34 +104,64 @@ function renderReconciliation() {
   }
 }
 
-/* ---- Concentration: committed vs disbursed by org --------- */
+/* ---- Concentration: committed funding as one share bar ----- */
 
 function renderConcentration() {
-  const maxc = Math.max.apply(null, DATA.org.map((o) => o.committed));
-  document.getElementById("conc").innerHTML = DATA.org
-    .filter((o) => o.committed > 0)
-    .map(
-      (o) =>
-        '<div class="row"><div class="org" title="' +
-        o.org +
-        '">' +
-        o.org +
-        "</div>" +
-        '<div class="bars">' +
-        '<div class="track"><div class="fc" style="width:' +
-        ((o.committed / maxc) * 100).toFixed(1) +
-        '%"></div></div>' +
-        '<div class="track"><div class="fd" style="width:' +
-        ((o.disbursed / maxc) * 100).toFixed(1) +
-        '%"></div></div>' +
-        "</div>" +
-        '<div class="amt"><span class="c">' +
-        fmt(o.committed) +
-        '</span> · <span class="d">' +
-        fmt(o.disbursed) +
-        "</span></div></div>"
-    )
-    .join("");
+  // Total committed across all orgs.
+  const orgs = DATA.org.filter((o) => o.committed > 0);
+  const total = orgs.reduce((s, o) => s + o.committed, 0);
+
+  // Show the top orgs individually; fold the long tail into "Other" so the
+  // bar reads as a concentration story rather than 20 unreadable slivers.
+  const TOP_N = 6;
+  const top = orgs.slice(0, TOP_N);
+  const rest = orgs.slice(TOP_N);
+  const otherTotal = rest.reduce((s, o) => s + o.committed, 0);
+
+  // Palette for the segments (last colour reserved for "Other").
+  const COLORS = [
+    "#7c4dff", "#5aa9e6", "#43d17a", "#e0a94a", "#c99cff", "#e06a6a",
+  ];
+  const OTHER = "#3a3450";
+
+  // Build the segments. A segment only shows its label inline if it's wide
+  // enough (>5% of total) to fit the text.
+  const seg = (label, value, color, titleExtra) => {
+    const pctNum = (value / total) * 100;
+    const inline = pctNum > 5 ? fmt(value) : "";
+    return (
+      '<span style="flex:' + value + ";background:" + color + '"' +
+      ' title="' + label + ": " + fmt(value) + " (" + pctNum.toFixed(0) + '%)">' +
+      inline + "</span>"
+    );
+  };
+
+  let bar = '<div class="sharebar">';
+  top.forEach((o, i) => {
+    bar += seg(o.org, o.committed, COLORS[i % COLORS.length]);
+  });
+  if (otherTotal > 0) {
+    bar += seg("Other " + rest.length + " orgs", otherTotal, OTHER);
+  }
+  bar += "</div>";
+
+  // Legend below: each top org with its share %, then the "Other" bucket.
+  let legend = '<div class="sharelegend">';
+  top.forEach((o, i) => {
+    legend +=
+      '<span><i style="background:' + COLORS[i % COLORS.length] + '"></i>' +
+      o.org + " <b>" + ((o.committed / total) * 100).toFixed(0) + "%</b> · " +
+      fmt(o.committed) + "</span>";
+  });
+  if (otherTotal > 0) {
+    legend +=
+      '<span><i style="background:' + OTHER + '"></i>Other ' + rest.length +
+      " orgs <b>" + ((otherTotal / total) * 100).toFixed(0) + "%</b> · " +
+      fmt(otherTotal) + "</span>";
+  }
+  legend += "</div>";
+
+  document.getElementById("conc").innerHTML = bar + legend;
 }
 
 /* ---- Monthly disbursement chart --------------------------- */
