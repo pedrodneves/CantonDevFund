@@ -90,8 +90,15 @@ def gh_paged(path, params=None, cap=None):
 # ---- Vote parsing -----------------------------------------------------------
 
 
-def parse_vote(body):
-    """Parse a GitVote comment into a vote record, or None if not a vote."""
+def parse_vote(body, container_open=True):
+    """Parse a GitVote comment into a vote record, or None if not a vote.
+
+    container_open: whether the issue/PR holding this vote is still OPEN.
+    GitVote often leaves the "## Vote status" comment in place even after a
+    vote concludes and the issue is closed — so a vote is only truly
+    'in_progress' when its container is still open. Once closed, the outcome
+    is decided by whether the in-favour share met the threshold.
+    """
     if not body:
         return None
     is_closed = "Vote closed" in body
@@ -115,18 +122,26 @@ def parse_vote(body):
         counts = {"favor": int(sm.group(1)), "against": int(sm.group(2)),
                   "abstain": int(sm.group(3)), "not_voted": int(sm.group(4))}
 
-    if is_status:
+    if is_closed:
+        # Explicit "Vote closed" comment states the outcome outright.
+        status = "failed" if "did not pass" in body.lower() else "passed"
+    elif is_status and container_open:
+        # A live status comment on a still-open issue/PR = genuinely voting.
         status = "in_progress"
     else:
-        passed = "did not pass" not in body.lower()
-        status = "passed" if passed else "failed"
+        # "Vote status" comment but the container is CLOSED -> the vote ended;
+        # decide the outcome from the tally against the threshold.
+        status = "passed" if favor >= threshold else "failed"
 
     return {"status": status, "favor": favor, "against": against,
             "threshold": threshold, "counts": counts}
 
 
-def latest_vote_in_timeline(issue_number):
+def latest_vote_in_timeline(issue_number, container_open=True):
     """Scan an issue/PR's comments and return the governing GitVote record.
+
+    container_open: whether the issue/PR is still open (affects whether a
+    "Vote status" comment counts as in-progress).
 
     GitVote edits ONE comment in place as a vote runs (status updates), then
     that same comment becomes "Vote closed". So we pick by the comment's
@@ -137,7 +152,7 @@ def latest_vote_in_timeline(issue_number):
     best_key = ("", "")  # (in_progress_flag, date) — in-progress sorts highest
     for c in gh_paged(f"/repos/{REPO}/issues/{issue_number}/comments"):
         body = c.get("body") or ""
-        v = parse_vote(body)
+        v = parse_vote(body, container_open=container_open)
         if not v:
             continue
         # updated_at reflects the latest tally edit; fall back to created_at.
@@ -163,7 +178,7 @@ def build(limit=None):
             continue
         num = issue["number"]
         title = issue.get("title") or ""
-        v = latest_vote_in_timeline(num)
+        v = latest_vote_in_timeline(num, container_open=(issue.get("state") == "open"))
         if not v:
             continue
         tm = TITLE_RE.search(title)
@@ -182,7 +197,7 @@ def build(limit=None):
     sys.stderr.write("Scanning PRs for votes...\n")
     for pr in gh_paged(f"/repos/{REPO}/pulls", {"state": "all"}, cap=limit):
         num = pr["number"]
-        v = latest_vote_in_timeline(num)
+        v = latest_vote_in_timeline(num, container_open=(pr.get("state") == "open"))
         if not v:
             continue
         votes.append({
