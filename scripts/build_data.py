@@ -67,6 +67,13 @@ ORG_CANON = {
     "IEU": "IntellectEU",
 }
 
+# Per-PR org/name overrides, applied to workbook grants that came through
+# without a proper org (e.g. an "(unspecified)" row). Add a line here if a
+# grant shows the wrong or missing organization.
+PR_OVERRIDES = {
+    105: {"org": "Moonsong Labs", "name": "Git-Based DAR Dependencies for dpm"},
+}
+
 # ---- HTTP helpers ------------------------------------------------------------
 
 
@@ -361,9 +368,13 @@ def build(limit=None):
         wb = json.load(f)
     grants_by_pr = {g["pr"]: g for g in wb["grants"] if g.get("pr")}
     # Reset each grant's payment list — payments now come from Lighthouse.
-    for g in grants_by_pr.values():
+    # Apply any per-PR org/name overrides (fills gaps the workbook left blank).
+    for pr, g in grants_by_pr.items():
         g["tx"] = []
         g["milestones"] = []
+        ov = PR_OVERRIDES.get(pr)
+        if ov:
+            g.update(ov)
     sys.stderr.write(f"Loaded workbook: {len(grants_by_pr)} grants "
                      f"({wb['headline_committed']:,.0f} CC committed).\n")
 
