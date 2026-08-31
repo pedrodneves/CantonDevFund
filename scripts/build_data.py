@@ -67,9 +67,9 @@ ORG_CANON = {
     "IEU": "IntellectEU",
 }
 
-# Per-PR org/name overrides, applied to workbook grants that came through
-# without a proper org (e.g. an "(unspecified)" row). Add a line here if a
-# grant shows the wrong or missing organization.
+# Per-PR overrides for grants whose proposal file parses wrong or is missing a
+# field (org, name, or committed amount). Add a line here to correct any grant.
+# `committed` here wins over the parsed proposal amount.
 PR_OVERRIDES = {
     105: {"org": "Moonsong Labs", "name": "Git-Based DAR Dependencies for dpm"},
 }
@@ -354,29 +354,106 @@ def extract_payout(body):
 # ---- Main build --------------------------------------------------------------
 
 
+def parse_committed(body):
+    """Total committed CC for a proposal, from its funding line.
+    Tries labeled funding lines (several phrasings), then a number on the line
+    after a bare label, then a sum of milestone amounts. Returns (amount,
+    per_month) — per_month flags a recurring monthly figure."""
+    # Labeled line — the alternation is wrapped so group 1 is always the number.
+    label = (r"(?:(?:Total\s+)?Funding\s+Request(?:ed)?|Grant\s+of|Grant\s+Amount|"
+             r"Total\s+Grant|Amount\s+Requested)")
+    m = re.search(label + r"\s*:?\**\s*[:\-]?\s*\**\s*([\d,]+(?:\.\d+)?)\s*(?:CC|Canton\s*Coin)",
+                  body, re.I)
+    if m:
+        amt = float(m.group(1).replace(",", ""))
+        tail = body[m.end():m.end() + 30].lower()
+        per_month = "per month" in tail or "/month" in tail or "/ month" in tail
+        return amt, per_month
+    # Number on the line after a bare "Total Funding Request:" label.
+    m = re.search(r"Total\s+Funding\s+Request\s*:?\**\s*\**\s*\n+\s*[*\-\s]*([\d,]{6,})", body, re.I)
+    if m:
+        return float(m.group(1).replace(",", "")), False
+    # Sum of milestone amounts from a table.
+    ms = re.findall(r"(?:^|\n)[|\s]*(?:Milestone\s*\d+|M\d+)\b[^\n]*?([\d,]{5,})\s*CC", body, re.I)
+    if ms:
+        total = sum(float(x.replace(",", "")) for x in ms)
+        if total >= 10000:
+            return total, False
+    return None, False
+
+
+def _proposal_title(body, filename):
+    """Human proposal title from the filename (date + org prefix stripped)."""
+    name = re.sub(r"\.md$", "", filename)
+    name = re.sub(r"^\d{4}-\d{2}-", "", name)
+    name = re.sub(r"^[A-Za-z]{2,14}-", "", name)  # drop leading ORG- segment
+    return name.replace("-", " ").replace("_", " ").strip()[:80] or filename
+
+
+def load_proposals(limit=None):
+    """Read /proposals/*.md, return {pr: grant_dict} for APPROVED proposals.
+    Each grant has: pr, org, name, approved, committed, per_month, url."""
+    listing, _ = gh(f"/repos/{REPO}/contents/proposals")
+    md = [f for f in listing
+          if f.get("name", "").endswith(".md") and "_template" not in f["name"]]
+    if limit:
+        md = md[:limit]
+
+    grants = {}
+    for f in md:
+        raw, _ = gh(f"/repos/{REPO}/contents/proposals/{urllib.parse.quote(f['name'])}")
+        body = base64.b64decode(raw.get("content", "")).decode("utf-8", "replace")
+
+        # PR number from the "| PR | [#NN](...) |" row or any /pull/NN link.
+        prm = re.search(r"\|\s*PR\s*\|\s*\[?#?(\d+)", body, re.I) or re.search(r"/pull/(\d+)", body)
+        if not prm:
+            continue
+        pr = int(prm.group(1))
+
+        status = clean(parse_field(body, "Status"))
+        if "approv" not in status.lower():
+            continue  # only funded grants
+
+        org = canon_org(clean(parse_field(body, "Org"))
+                        or clean(parse_field(body, "Organization"))
+                        or clean(parse_field(body, "Author")))
+        committed, per_month = parse_committed(body)
+
+        grants[pr] = {
+            "pr": pr,
+            "org": org or "(unspecified)",
+            "name": _proposal_title(body, f["name"]),
+            "approved": clean(parse_field(body, "Approved"))[:10],
+            "status": "Approved",
+            "committed": committed or 0.0,
+            "per_month": per_month,
+            "duration": clean(parse_field(body, "Project Duration")
+                              or parse_field(body, "Duration")),
+            "url": f"https://github.com/{REPO}/pull/{pr}",
+            "milestones": [],
+            "tx": [],
+        }
+    return grants
+
+
 def build(limit=None):
-    """Build data.json from three sources, each used for what it's authoritative on:
-      - WORKBOOK  -> committed amounts + org + approval dates (the funded totals).
+    """Build data.json from GitHub + Lighthouse only (no workbook):
+      - PROPOSAL FILES (/proposals/*.md) -> committed amount + org + name,
+        for every APPROVED grant, keyed by PR number.
       - LIGHTHOUSE -> actual on-chain disbursements (the real payments), live.
       - REPO issues -> milestone names + issue links, to label each payment.
-    Disbursed is computed from Lighthouse, so the paid side is always live and
-    on-chain. Committed stays from the workbook, so it can't mis-parse.
     """
-    # 1) Committed base + org from the workbook, indexed by PR.
-    wb_path = os.path.join(os.path.dirname(__file__), "..", "workbook.json")
-    with open(wb_path) as f:
-        wb = json.load(f)
-    grants_by_pr = {g["pr"]: g for g in wb["grants"] if g.get("pr")}
-    # Reset each grant's payment list — payments now come from Lighthouse.
-    # Apply any per-PR org/name overrides (fills gaps the workbook left blank).
+    # 1) APPROVED grants from the proposal files.
+    sys.stderr.write("Fetching approved proposals from /proposals ...\n")
+    grants_by_pr = load_proposals(limit=limit)
+    # Apply any per-PR org/name/committed overrides for odd-format proposals.
     for pr, g in grants_by_pr.items():
-        g["tx"] = []
-        g["milestones"] = []
         ov = PR_OVERRIDES.get(pr)
         if ov:
             g.update(ov)
-    sys.stderr.write(f"Loaded workbook: {len(grants_by_pr)} grants "
-                     f"({wb['headline_committed']:,.0f} CC committed).\n")
+    total_committed = sum(g.get("committed", 0) for g in grants_by_pr.values())
+    sys.stderr.write(f"  {len(grants_by_pr)} approved grants "
+                     f"({total_committed:,.0f} CC committed).\n")
 
     # 2) DISBURSEMENTS from Lighthouse (authoritative, on-chain, live).
     sys.stderr.write("Fetching disbursements from Lighthouse...\n")
@@ -457,6 +534,23 @@ def build(limit=None):
         ms_by_pr[parent_pr].append(rec)
 
     # 4) Assemble each grant's payments from Lighthouse, labeled with repo names.
+    # Safety net: if Lighthouse paid a PR that has no approved proposal file
+    # (odd status, or proposal not parsed), still create a minimal grant so the
+    # on-chain disbursement is never dropped — committed shows 0 until fixed.
+    for pr in lh_payments:
+        if pr not in grants_by_pr:
+            grants_by_pr[pr] = {
+                "pr": pr, "org": "(unspecified)",
+                "name": "PR #" + str(pr),
+                "approved": "", "status": "Approved",
+                "committed": 0.0, "per_month": False, "duration": "",
+                "url": f"https://github.com/{REPO}/pull/{pr}",
+                "milestones": [], "tx": [],
+            }
+            ov = PR_OVERRIDES.get(pr)
+            if ov:
+                grants_by_pr[pr].update(ov)
+
     for pr, g in grants_by_pr.items():
         # Milestone chips for the dropdown (from repo).
         g["milestones"] = sorted(ms_by_pr.get(pr, []), key=lambda m: m["n"])
@@ -483,7 +577,7 @@ def build(limit=None):
         g["has_lighthouse"] = bool(txs)
 
     # 5) Recompute aggregates from the live disbursement data.
-    grants = sorted(wb["grants"], key=lambda g: -g.get("committed", 0))
+    grants = sorted(grants_by_pr.values(), key=lambda g: -g.get("committed", 0))
     total_comm = sum(g.get("committed", 0) for g in grants)
     total_disb = sum(g.get("disbursed", 0) for g in grants)
     org_c, org_d = defaultdict(float), defaultdict(float)
@@ -499,7 +593,7 @@ def build(limit=None):
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "source": f"https://github.com/{REPO}",
         "disbursement_source": "https://lighthouse.cantonloop.com/dev-fund",
-        "headline_committed": total_comm,          # from workbook
+        "headline_committed": total_comm,          # from proposal files (GitHub)
         "headline_disbursed": total_disb,          # from Lighthouse (live)
         "headline_remaining": total_comm - total_disb,
         "total_disbursed_matched": total_disb,
