@@ -40,7 +40,13 @@ body {
 
 /* ---- Header ------------------------------------------------ */
 header { margin-bottom: 22px; }
-h1 { margin: 0; font-size: 38px; letter-spacing: -1px; }
+
+/* Brand cluster: Foundation logo · divider · title (matches the SV calendar) */
+.brand { display: flex; align-items: center; gap: 20px; }
+.brand .logo { height: 44px; flex-shrink: 0; }
+.brand-divider { width: 1px; height: 46px; background: var(--border-soft); flex-shrink: 0; }
+
+h1 { margin: 0; font-size: 34px; letter-spacing: -.5px; }
 .subtitle { margin-top: 8px; color: var(--muted); max-width: 720px; }
 
 /* Green verified-source pill (mirrors calendar's "Source" pill) */
@@ -264,4 +270,10 @@ footer.pg { color: var(--slate); font-size: 12px; margin-top: 36px; text-align: 
 @media (max-width: 1000px) {
   .headline { grid-template-columns: 1fr; }
   .grid4 { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 640px) {
+  /* Stack the logo above the title on narrow screens; drop the divider. */
+  .brand { flex-direction: column; align-items: flex-start; gap: 14px; }
+  .brand-divider { display: none; }
+  .brand .logo { height: 36px; }
 }
