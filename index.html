@@ -117,19 +117,21 @@
       <div class="panel">
         <h2>All votes</h2>
         <p class="note">Every GitVote decision — proposal approvals and milestone completions. Filter by status or type; in-progress votes show first.</p>
-        <div class="controls">
+        <div class="controls votes-controls">
           <input id="v-search" placeholder="Search proposal or milestone..." />
-          <span class="chip on" data-vf="all">All</span>
-          <span class="chip" data-vf="in_progress">In progress</span>
-          <span class="chip" data-vf="passed">Passed</span>
-          <span class="chip" data-vf="failed">Did not pass</span>
+          <div class="vfilter">
+            <button class="vf on" data-vf="all">All</button>
+            <button class="vf vf-progress" data-vf="in_progress">In progress</button>
+            <button class="vf vf-passed" data-vf="passed">Passed</button>
+            <button class="vf vf-failed" data-vf="failed">Did not pass</button>
+          </div>
+          <span class="spacer"></span>
+          <span id="v-count" class="note" style="margin:0"></span>
           <select id="v-kind">
             <option value="all">All types</option>
             <option value="proposal">Proposal votes</option>
             <option value="milestone">Milestone votes</option>
           </select>
-          <span class="spacer"></span>
-          <span id="v-count" class="note" style="margin:0"></span>
         </div>
         <div class="votelist" id="votes"><div class="state">Loading votes…</div></div>
       </div>

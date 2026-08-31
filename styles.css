@@ -319,3 +319,34 @@ footer.pg { color: var(--slate); font-size: 12px; margin-top: 36px; text-align: 
 .vc.total { color: var(--muted); margin-left: auto; }
 .vote .linkbtn { align-self: flex-start; margin-top: auto; }
 @media (max-width: 900px) { .votelist { grid-template-columns: 1fr; } }
+
+/* ---- Votes filter buttons (status-coloured) --------------- */
+.votes-controls .vfilter {
+  display: inline-flex; gap: 0; border: 1px solid var(--border-soft);
+  border-radius: 10px; overflow: hidden;
+}
+.votes-controls .vf {
+  font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+  padding: 9px 15px; background: var(--panel2); color: var(--slate);
+  border: none; border-right: 1px solid var(--border-soft); white-space: nowrap;
+}
+.votes-controls .vf:last-child { border-right: none; }
+.votes-controls .vf:hover { color: var(--text); background: var(--panel); }
+
+/* Active states — each button adopts its status colour when selected. */
+.votes-controls .vf.on { color: #fff; }
+.votes-controls .vf[data-vf="all"].on { background: var(--purple); }
+.votes-controls .vf.vf-progress.on { background: var(--amber); color: #1a1205; }
+.votes-controls .vf.vf-passed.on { background: var(--green); color: #04140b; }
+.votes-controls .vf.vf-failed.on { background: #e06a6a; color: #1a0606; }
+
+/* A subtle colour hint even when not active, so they read as status filters. */
+.votes-controls .vf.vf-progress { color: var(--amber); }
+.votes-controls .vf.vf-passed { color: var(--green); }
+.votes-controls .vf.vf-failed { color: #e06a6a; }
+.votes-controls .vf.vf-progress:hover { background: rgba(224,169,74,.12); }
+.votes-controls .vf.vf-passed:hover { background: rgba(67,209,122,.12); }
+.votes-controls .vf.vf-failed:hover { background: rgba(224,106,106,.12); }
+
+/* Keep the type dropdown to the right (after the spacer). */
+.votes-controls #v-kind { margin-left: 4px; }

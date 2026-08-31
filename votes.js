@@ -44,9 +44,9 @@
 
   function wireControls() {
     wired = true;
-    document.querySelectorAll("#tab-votes .chip").forEach(function (c) {
+    document.querySelectorAll("#tab-votes .vf").forEach(function (c) {
       c.onclick = function () {
-        document.querySelectorAll("#tab-votes .chip").forEach(function (x) { x.classList.remove("on"); });
+        document.querySelectorAll("#tab-votes .vf").forEach(function (x) { x.classList.remove("on"); });
         c.classList.add("on");
         statusFilter = c.dataset.vf;
         render();
