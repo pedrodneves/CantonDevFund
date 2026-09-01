@@ -46,7 +46,6 @@ async function boot() {
   }
   renderHeadline();
   renderMetrics();
-  renderReconciliation();
   renderConcentration();
   renderMonths();
   wireControls();
@@ -80,28 +79,6 @@ function renderMetrics() {
   document.getElementById("m-pct").textContent = pct.toFixed(0) + "%";
   document.getElementById("m-grants").textContent = DATA.n_grants;
   document.getElementById("m-tx").textContent = DATA.n_tx;
-}
-
-/* ---- Reconciliation note ---------------------------------- */
-
-// Explains the gap between the headline disbursed total and the
-// sum of per-grant disbursements (payments confirmed on-chain but
-// not yet tied to a specific grant). Shown honestly, not hidden.
-function renderReconciliation() {
-  const el = document.getElementById("recon");
-  if (DATA.unassigned > 0) {
-    el.innerHTML =
-      "<b>Reconciliation:</b> " +
-      fmtc(DATA.headline_disbursed) +
-      " CC disbursed in total — " +
-      fmtc(DATA.total_disbursed_matched) +
-      " CC matched to the grants below, and " +
-      fmtc(DATA.unassigned) +
-      " CC Lighthouse-confirmed on-chain but not yet tied to a grant (payments awaiting a verifiable mint date). Shown separately rather than forced to match.";
-  } else {
-    el.innerHTML =
-      "<b>Reconciliation:</b> per-grant disbursements sum exactly to the headline total.";
-  }
 }
 
 /* ---- Concentration: committed funding as one share bar ----- */
