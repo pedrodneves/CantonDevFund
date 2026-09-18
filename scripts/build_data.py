@@ -136,11 +136,28 @@ def gh_paged(path, params=None, cap=None):
 
 def fetch_lighthouse_events(limit=None):
     """Page through the Lighthouse events feed and return the raw event list.
-    The feed is cursor-paginated (pagination.has_next / next_cursor_id)."""
+    The feed is cursor-paginated (pagination.has_next / next_cursor_id).
+
+    Authentication: the Lighthouse API requires an API key sent as
+    'Authorization: Bearer <key>'. The key is read from the LIGHTHOUSE_API_KEY
+    environment variable (set as a GitHub Actions secret) — never hardcoded.
+    """
     events = []
     cursor = None
     pages = 0
     seen_ids = set()
+
+    # Build the auth header once. Fail early with a clear message if missing.
+    api_key = os.environ.get("LIGHTHOUSE_API_KEY", "").strip()
+    headers = {"User-Agent": "canton-devfund-site", "Accept": "application/json"}
+    if api_key:
+        # Accept either a bare key or one already prefixed with "Bearer ".
+        headers["Authorization"] = api_key if api_key.lower().startswith("bearer ") \
+            else "Bearer " + api_key
+    else:
+        sys.stderr.write("  WARNING: LIGHTHOUSE_API_KEY is not set — the Lighthouse "
+                         "API will return 401 Unauthorized.\n")
+
     while True:
         url = LIGHTHOUSE_EVENTS + "?limit=100"
         if cursor:
@@ -148,7 +165,7 @@ def fetch_lighthouse_events(limit=None):
             # the response's "next_cursor_id" field. If pagination ever silently
             # fails, the dedupe below stops us rather than looping forever.
             url += f"&cursor_id={cursor}"
-        req = urllib.request.Request(url, headers={"User-Agent": "canton-devfund-site"})
+        req = urllib.request.Request(url, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=45) as r:
                 data = json.loads(r.read().decode())
