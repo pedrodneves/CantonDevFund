@@ -229,15 +229,51 @@ def canon_org(org):
     return ORG_CANON.get(org, org)
 
 
+# Tokens that should stay UPPERCASE in titles (acronyms), and a few that have a
+# specific casing. Matched case-insensitively; the value is how it's rendered.
+TITLE_ACRONYMS = {
+    "da": "DA", "sdk": "SDK", "pqs": "PQS", "bft": "BFT", "oss": "OSS",
+    "ui": "UI", "ux": "UX", "api": "API", "sv": "SV", "vm": "VM",
+    "dex": "DEX", "cip": "CIP", "iss": "ISS", "lms": "LMS", "dpm": "DPM",
+    "ai": "AI", "eu": "EU", "id": "ID", "cc": "CC",
+    "daml": "Daml", "canton": "Canton", "splice": "Splice",
+    "intellecteu": "IntellectEU", "openzeppelin": "OpenZeppelin",
+    "bitsafe": "BitSafe", "cctools": "CCTools", "nodejumper": "NODEJUMPER",
+}
+
+
+def _title_case(text):
+    """Title-case a phrase for display, keeping known acronyms uppercase and
+    real version tokens (v2, x402) sensible. E.g.:
+      'token standard v2'                 -> 'Token Standard V2'
+      'OSS validator indexer pqs'         -> 'OSS Validator Indexer PQS'
+      '2026 04 DA scalability robustness' -> 'DA Scalability Robustness'
+    """
+    words = []
+    for w in text.split():
+        low = w.lower()
+        if low in TITLE_ACRONYMS:
+            words.append(TITLE_ACRONYMS[low])          # known acronym / brand
+        elif re.fullmatch(r"v\d+", low):
+            words.append("V" + low[1:])                # version token: v2 -> V2
+        elif re.fullmatch(r"x\d+", low):
+            words.append(w.lower())                    # protocol like x402
+        elif re.fullmatch(r"\d+", w):
+            continue                                   # drop stray numbers (dates)
+        else:
+            words.append(w[:1].upper() + w[1:] if w else w)  # normal capitalise
+    return " ".join(words)
+
+
 def _proposal_title(body, filename):
-    """Human-readable proposal title. The filename is the most reliable source
-    (e.g. '2026-06-IEU-Daml Code Assistant.md' -> 'Daml Code Assistant'); we
-    strip the date prefix and any leading org short-code segment."""
+    """Human-readable proposal title from the filename: strip the date prefix
+    and any leading org short-code, then apply standardized Title Case with
+    acronyms preserved (so names read consistently in the ledger)."""
     name = re.sub(r"\.md$", "", filename)
-    name = re.sub(r"^\d{4}-\d{2}-", "", name)          # drop date prefix
-    # Drop a leading "ORG-" segment (e.g. "IEU-", "DA-") if present.
-    name = re.sub(r"^[A-Za-z]{2,12}-", "", name)
+    name = re.sub(r"^\d{4}-\d{2}-", "", name)          # drop leading date prefix
+    name = re.sub(r"^[A-Za-z]{2,14}-", "", name)       # drop leading ORG- segment
     name = name.replace("-", " ").replace("_", " ").strip()
+    name = _title_case(name)
     return name[:80] if name else filename
 
 
@@ -396,14 +432,6 @@ def parse_committed(body):
         if total >= 10000:
             return total, False
     return None, False
-
-
-def _proposal_title(body, filename):
-    """Human proposal title from the filename (date + org prefix stripped)."""
-    name = re.sub(r"\.md$", "", filename)
-    name = re.sub(r"^\d{4}-\d{2}-", "", name)
-    name = re.sub(r"^[A-Za-z]{2,14}-", "", name)  # drop leading ORG- segment
-    return name.replace("-", " ").replace("_", " ").strip()[:80] or filename
 
 
 def load_proposals(limit=None):
