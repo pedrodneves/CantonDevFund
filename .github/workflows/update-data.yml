@@ -27,6 +27,8 @@ jobs:
       - name: Rebuild data.json from the dev fund repo
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Lighthouse API key (Authorization: Bearer <key>) for disbursements.
+          LIGHTHOUSE_API_KEY: ${{ secrets.LIGHTHOUSE_API_KEY }}
         run: |
           set -euo pipefail
           rm -f data.new.json          # never reuse a stale temp file
