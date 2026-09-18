@@ -136,28 +136,11 @@ def gh_paged(path, params=None, cap=None):
 
 def fetch_lighthouse_events(limit=None):
     """Page through the Lighthouse events feed and return the raw event list.
-    The feed is cursor-paginated (pagination.has_next / next_cursor_id).
-
-    Authentication: the Lighthouse API requires an API key sent as
-    'Authorization: Bearer <key>'. The key is read from the LIGHTHOUSE_API_KEY
-    environment variable (set as a GitHub Actions secret) — never hardcoded.
-    """
+    The feed is cursor-paginated (pagination.has_next / next_cursor_id)."""
     events = []
     cursor = None
     pages = 0
     seen_ids = set()
-
-    # Build the auth header once. Fail early with a clear message if missing.
-    api_key = os.environ.get("LIGHTHOUSE_API_KEY", "").strip()
-    headers = {"User-Agent": "canton-devfund-site", "Accept": "application/json"}
-    if api_key:
-        # Accept either a bare key or one already prefixed with "Bearer ".
-        headers["Authorization"] = api_key if api_key.lower().startswith("bearer ") \
-            else "Bearer " + api_key
-    else:
-        sys.stderr.write("  WARNING: LIGHTHOUSE_API_KEY is not set — the Lighthouse "
-                         "API will return 401 Unauthorized.\n")
-
     while True:
         url = LIGHTHOUSE_EVENTS + "?limit=100"
         if cursor:
@@ -165,7 +148,7 @@ def fetch_lighthouse_events(limit=None):
             # the response's "next_cursor_id" field. If pagination ever silently
             # fails, the dedupe below stops us rather than looping forever.
             url += f"&cursor_id={cursor}"
-        req = urllib.request.Request(url, headers=headers)
+        req = urllib.request.Request(url, headers={"User-Agent": "canton-devfund-site"})
         try:
             with urllib.request.urlopen(req, timeout=45) as r:
                 data = json.loads(r.read().decode())
@@ -371,6 +354,23 @@ def extract_payout(body):
 # ---- Main build --------------------------------------------------------------
 
 
+def _is_recurring(body, match_start, match_end):
+    """True if the funding amount is a recurring rate ('per month', 'monthly',
+    'per annum', 'quarterly', etc.). We scan the WHOLE line containing the
+    match — not just a few chars after it — because the keyword often sits a
+    bit further along, e.g. '2,000,000 Canton Coin (CC) per month'."""
+    line_start = body.rfind("\n", 0, match_start) + 1
+    line_end = body.find("\n", match_end)
+    if line_end == -1:
+        line_end = len(body)
+    line = body[line_start:line_end].lower()
+    return any(kw in line for kw in (
+        "per month", "/month", "/ month", "monthly",
+        "per annum", "annually", "per year", "/year",
+        "quarterly", "per quarter", "recurring", "ongoing",
+    ))
+
+
 def parse_committed(body):
     """Total committed CC for a proposal, from its funding line.
     Tries labeled funding lines (several phrasings), then a number on the line
@@ -383,8 +383,7 @@ def parse_committed(body):
                   body, re.I)
     if m:
         amt = float(m.group(1).replace(",", ""))
-        tail = body[m.end():m.end() + 30].lower()
-        per_month = "per month" in tail or "/month" in tail or "/ month" in tail
+        per_month = _is_recurring(body, m.start(), m.end())
         return amt, per_month
     # Number on the line after a bare "Total Funding Request:" label.
     m = re.search(r"Total\s+Funding\s+Request\s*:?\**\s*\**\s*\n+\s*[*\-\s]*([\d,]{6,})", body, re.I)
